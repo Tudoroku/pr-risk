@@ -17,17 +17,17 @@ def calculate_risk(changed_files: list[str]) -> RiskResult:
 
     if any(_is_cmake_file(path) for path in changed_files):
         score += 25
-        reasons.append("Changed CMake files")
+        reasons.append("Build system files changed")
 
     if any(_is_header_file(path) for path in changed_files):
         score += 25
-        reasons.append("Changed header files")
+        reasons.append("Header/API files changed")
 
     source_count = sum(1 for path in changed_files if _is_source_file(path))
     if source_count:
         source_score = min(source_count * 5, 25)
         score += source_score
-        reasons.append(f"Changed source files: {source_count}")
+        reasons.append("Source implementation files changed")
 
     if not any(_is_test_file(path) for path in changed_files):
         score += 25
@@ -58,10 +58,10 @@ def _is_test_file(path: str) -> bool:
     parts = path.replace("\\", "/").lower().split("/")
     filename = parts[-1]
     return (
-        "test" in parts
-        or "tests" in parts
+        "tests" in parts
         or filename.startswith("test_")
-        or "_test." in filename
+        or filename.endswith("_test.cpp")
+        or filename.endswith("_test.py")
     )
 
 

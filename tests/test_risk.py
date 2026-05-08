@@ -25,10 +25,50 @@ def test_cmake_header_and_source_files_add_expected_score():
     assert result.score == 60
     assert result.level == "MEDIUM"
     assert result.reasons == [
-        "Changed CMake files",
-        "Changed header files",
-        "Changed source files: 2",
+        "Build system files changed",
+        "Header/API files changed",
+        "Source implementation files changed",
     ]
+
+
+def test_build_system_files_add_expected_reason():
+    result = calculate_risk(["src/CMakeLists.txt", "cmake/toolchain.cmake", "tests/build.py"])
+
+    assert result.score == 25
+    assert result.level == "LOW"
+    assert result.reasons == ["Build system files changed"]
+
+
+def test_header_api_files_add_expected_reason():
+    result = calculate_risk(
+        [
+            "include/a.h",
+            "include/b.hpp",
+            "include/c.hh",
+            "include/d.hxx",
+            "tests/test_headers.py",
+        ]
+    )
+
+    assert result.score == 25
+    assert result.level == "LOW"
+    assert result.reasons == ["Header/API files changed"]
+
+
+def test_source_implementation_files_add_expected_reason():
+    result = calculate_risk(
+        [
+            "src/a.c",
+            "src/b.cc",
+            "src/c.cpp",
+            "src/d.cxx",
+            "tests/test_sources.py",
+        ]
+    )
+
+    assert result.score == 20
+    assert result.level == "LOW"
+    assert result.reasons == ["Source implementation files changed"]
 
 
 def test_source_file_score_is_capped_at_25():
@@ -46,7 +86,7 @@ def test_source_file_score_is_capped_at_25():
 
     assert result.score == 25
     assert result.level == "LOW"
-    assert result.reasons == ["Changed source files: 7"]
+    assert result.reasons == ["Source implementation files changed"]
 
 
 def test_no_test_files_changed_adds_25_points():
@@ -55,17 +95,48 @@ def test_no_test_files_changed_adds_25_points():
     assert result.score == 30
     assert result.level == "LOW"
     assert result.reasons == [
-        "Changed source files: 1",
+        "Source implementation files changed",
         "No test files changed",
     ]
 
 
-def test_test_directory_counts_as_test_file_change():
-    result = calculate_risk(["test/widget_test.cpp"])
+def test_tests_directory_counts_as_test_file_change():
+    result = calculate_risk(["tests/widget.cpp"])
 
     assert result.score == 5
     assert result.level == "LOW"
-    assert result.reasons == ["Changed source files: 1"]
+    assert result.reasons == ["Source implementation files changed"]
+
+
+def test_test_prefix_counts_as_test_file_change():
+    result = calculate_risk(["src/test_widget.cpp"])
+
+    assert result.score == 5
+    assert result.level == "LOW"
+    assert result.reasons == ["Source implementation files changed"]
+
+
+def test_cpp_and_python_test_suffixes_count_as_test_file_changes():
+    cpp_result = calculate_risk(["src/widget_test.cpp"])
+    python_result = calculate_risk(["tools/widget_test.py"])
+
+    assert cpp_result.score == 5
+    assert cpp_result.level == "LOW"
+    assert cpp_result.reasons == ["Source implementation files changed"]
+    assert python_result.score == 0
+    assert python_result.level == "NONE"
+    assert python_result.reasons == []
+
+
+def test_singular_test_directory_does_not_count_as_test_file_change():
+    result = calculate_risk(["test/widget.cpp"])
+
+    assert result.score == 30
+    assert result.level == "LOW"
+    assert result.reasons == [
+        "Source implementation files changed",
+        "No test files changed",
+    ]
 
 
 def test_score_is_capped_at_100_and_high_risk():
@@ -84,9 +155,9 @@ def test_score_is_capped_at_100_and_high_risk():
     assert result.score == 100
     assert result.level == "HIGH"
     assert result.reasons == [
-        "Changed CMake files",
-        "Changed header files",
-        "Changed source files: 5",
+        "Build system files changed",
+        "Header/API files changed",
+        "Source implementation files changed",
         "No test files changed",
     ]
 
