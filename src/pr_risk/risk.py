@@ -1,6 +1,19 @@
 from dataclasses import dataclass
 
 
+TEST_FILE_SUFFIXES = (
+    "_test.c",
+    "_test.cc",
+    "_test.cpp",
+    "_test.cxx",
+    "_test.h",
+    "_test.hpp",
+    "_test.hh",
+    "_test.hxx",
+    "_test.py",
+)
+
+
 @dataclass(frozen=True)
 class RiskResult:
     score: int
@@ -60,8 +73,7 @@ def _is_test_file(path: str) -> bool:
     return (
         "tests" in parts
         or filename.startswith("test_")
-        or filename.endswith("_test.cpp")
-        or filename.endswith("_test.py")
+        or filename.endswith(TEST_FILE_SUFFIXES)
     )
 
 

@@ -116,16 +116,26 @@ def test_test_prefix_counts_as_test_file_change():
     assert result.reasons == ["Source implementation files changed"]
 
 
-def test_cpp_and_python_test_suffixes_count_as_test_file_changes():
-    cpp_result = calculate_risk(["src/widget_test.cpp"])
-    python_result = calculate_risk(["tools/widget_test.py"])
+def test_test_suffixes_count_as_test_file_changes():
+    cases = [
+        ("src/widget_test.c", 5, "LOW", ["Source implementation files changed"]),
+        ("src/widget_test.cc", 5, "LOW", ["Source implementation files changed"]),
+        ("src/widget_test.cpp", 5, "LOW", ["Source implementation files changed"]),
+        ("src/widget_test.cxx", 5, "LOW", ["Source implementation files changed"]),
+        ("include/widget_test.h", 25, "LOW", ["Header/API files changed"]),
+        ("include/widget_test.hpp", 25, "LOW", ["Header/API files changed"]),
+        ("include/widget_test.hh", 25, "LOW", ["Header/API files changed"]),
+        ("include/widget_test.hxx", 25, "LOW", ["Header/API files changed"]),
+        ("tools/widget_test.py", 0, "NONE", []),
+    ]
 
-    assert cpp_result.score == 5
-    assert cpp_result.level == "LOW"
-    assert cpp_result.reasons == ["Source implementation files changed"]
-    assert python_result.score == 0
-    assert python_result.level == "NONE"
-    assert python_result.reasons == []
+    for path, score, level, reasons in cases:
+        result = calculate_risk([path])
+
+        assert result.score == score
+        assert result.level == level
+        assert result.reasons == reasons
+        assert "No test files changed" not in result.reasons
 
 
 def test_singular_test_directory_does_not_count_as_test_file_change():
