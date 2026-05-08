@@ -12,6 +12,7 @@ TEST_FILE_SUFFIXES = (
     "_test.hxx",
     "_test.py",
 )
+DIRECTORY_RISK_SCORE = 10
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,13 @@ def calculate_risk(changed_files: list[str]) -> RiskResult:
     if not changed_files:
         return RiskResult(score=0, level="LOW", reasons=["No changed files"])
 
+    if all(_is_documentation_file(path) for path in changed_files):
+        return RiskResult(
+            score=0,
+            level="LOW",
+            reasons=["Only documentation files changed"],
+        )
+
     if any(_is_cmake_file(path) for path in changed_files):
         score += 25
         reasons.append("Build system files changed")
@@ -41,6 +49,22 @@ def calculate_risk(changed_files: list[str]) -> RiskResult:
         source_score = min(source_count * 5, 25)
         score += source_score
         reasons.append("Source implementation files changed")
+
+    if any(_is_under_directory(path, {"src", "lib"}) for path in changed_files):
+        score += DIRECTORY_RISK_SCORE
+        reasons.append("Production code changed")
+
+    if any(_is_under_directory(path, {"include"}) for path in changed_files):
+        score += DIRECTORY_RISK_SCORE
+        reasons.append("Public API directory changed")
+
+    if any(_is_under_directory(path, {"cmake"}) for path in changed_files):
+        score += DIRECTORY_RISK_SCORE
+        reasons.append("Build configuration directory changed")
+
+    if any(_is_under_directory(path, {"third_party", "vendor"}) for path in changed_files):
+        score += DIRECTORY_RISK_SCORE
+        reasons.append("Vendor/dependency files changed")
 
     if not any(_is_test_file(path) for path in changed_files):
         score += 25
@@ -78,6 +102,22 @@ def _is_test_file(path: str) -> bool:
         or filename.startswith("test_")
         or filename.endswith(TEST_FILE_SUFFIXES)
     )
+
+
+def _is_documentation_file(path: str) -> bool:
+    normalized = path.replace("\\", "/").lower().lstrip("./")
+    filename = normalized.rsplit("/", maxsplit=1)[-1]
+    return (
+        _is_under_directory(normalized, {"docs"})
+        or filename == "readme"
+        or filename.startswith("readme.")
+        or _extension(normalized) in {".md", ".markdown"}
+    )
+
+
+def _is_under_directory(path: str, directories: set[str]) -> bool:
+    parts = path.replace("\\", "/").lower().lstrip("./").split("/")
+    return len(parts) > 1 and parts[0] in directories
 
 
 def _extension(path: str) -> str:

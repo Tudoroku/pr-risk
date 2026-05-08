@@ -22,21 +22,27 @@ def test_cmake_header_and_source_files_add_expected_score():
         ]
     )
 
-    assert result.score == 60
-    assert result.level == "MEDIUM"
+    assert result.score == 80
+    assert result.level == "HIGH"
     assert result.reasons == [
         "Build system files changed",
         "Header/API files changed",
         "Source implementation files changed",
+        "Production code changed",
+        "Public API directory changed",
     ]
 
 
 def test_build_system_files_add_expected_reason():
     result = calculate_risk(["src/CMakeLists.txt", "cmake/toolchain.cmake", "tests/build.py"])
 
-    assert result.score == 25
-    assert result.level == "LOW"
-    assert result.reasons == ["Build system files changed"]
+    assert result.score == 45
+    assert result.level == "MEDIUM"
+    assert result.reasons == [
+        "Build system files changed",
+        "Production code changed",
+        "Build configuration directory changed",
+    ]
 
 
 def test_header_api_files_add_expected_reason():
@@ -50,9 +56,12 @@ def test_header_api_files_add_expected_reason():
         ]
     )
 
-    assert result.score == 25
+    assert result.score == 35
     assert result.level == "LOW"
-    assert result.reasons == ["Header/API files changed"]
+    assert result.reasons == [
+        "Header/API files changed",
+        "Public API directory changed",
+    ]
 
 
 def test_source_implementation_files_add_expected_reason():
@@ -66,9 +75,12 @@ def test_source_implementation_files_add_expected_reason():
         ]
     )
 
-    assert result.score == 20
+    assert result.score == 30
     assert result.level == "LOW"
-    assert result.reasons == ["Source implementation files changed"]
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+    ]
 
 
 def test_source_file_score_is_capped_at_25():
@@ -84,18 +96,22 @@ def test_source_file_score_is_capped_at_25():
         ]
     )
 
-    assert result.score == 25
+    assert result.score == 35
     assert result.level == "LOW"
-    assert result.reasons == ["Source implementation files changed"]
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+    ]
 
 
 def test_no_test_files_changed_adds_25_points():
     result = calculate_risk(["src/widget.cpp"])
 
-    assert result.score == 30
-    assert result.level == "LOW"
+    assert result.score == 40
+    assert result.level == "MEDIUM"
     assert result.reasons == [
         "Source implementation files changed",
+        "Production code changed",
         "No test files changed",
     ]
 
@@ -106,6 +122,47 @@ def test_non_empty_low_risk_files_return_low_with_reason():
     assert result.score == 0
     assert result.level == "LOW"
     assert result.reasons == ["Only low-risk files changed"]
+
+
+def test_production_directories_add_expected_reason():
+    result = calculate_risk(["lib/widget.txt", "tests/test_widget.py"])
+
+    assert result.score == 10
+    assert result.level == "LOW"
+    assert result.reasons == ["Production code changed"]
+
+
+def test_public_api_directory_adds_expected_reason():
+    result = calculate_risk(["include/api.txt", "tests/test_api.py"])
+
+    assert result.score == 10
+    assert result.level == "LOW"
+    assert result.reasons == ["Public API directory changed"]
+
+
+def test_build_configuration_directory_adds_expected_reason():
+    result = calculate_risk(["cmake/presets.txt", "tests/test_build.py"])
+
+    assert result.score == 10
+    assert result.level == "LOW"
+    assert result.reasons == ["Build configuration directory changed"]
+
+
+def test_vendor_dependency_directories_add_expected_reason():
+    result = calculate_risk(["third_party/package.txt", "vendor/lib.txt", "tests/test_deps.py"])
+
+    assert result.score == 10
+    assert result.level == "LOW"
+    assert result.reasons == ["Vendor/dependency files changed"]
+
+
+def test_docs_only_changes_stay_low_without_missing_test_reason():
+    result = calculate_risk(["docs/guide.txt", "README", "notes.md", "nested/readme.markdown"])
+
+    assert result.score == 0
+    assert result.level == "LOW"
+    assert result.reasons == ["Only documentation files changed"]
+    assert "No test files changed" not in result.reasons
 
 
 def test_tests_directory_counts_as_test_file_change():
@@ -119,21 +176,24 @@ def test_tests_directory_counts_as_test_file_change():
 def test_test_prefix_counts_as_test_file_change():
     result = calculate_risk(["src/test_widget.cpp"])
 
-    assert result.score == 5
+    assert result.score == 15
     assert result.level == "LOW"
-    assert result.reasons == ["Source implementation files changed"]
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+    ]
 
 
 def test_test_suffixes_count_as_test_file_changes():
     cases = [
-        ("src/widget_test.c", 5, "LOW", ["Source implementation files changed"]),
-        ("src/widget_test.cc", 5, "LOW", ["Source implementation files changed"]),
-        ("src/widget_test.cpp", 5, "LOW", ["Source implementation files changed"]),
-        ("src/widget_test.cxx", 5, "LOW", ["Source implementation files changed"]),
-        ("include/widget_test.h", 25, "LOW", ["Header/API files changed"]),
-        ("include/widget_test.hpp", 25, "LOW", ["Header/API files changed"]),
-        ("include/widget_test.hh", 25, "LOW", ["Header/API files changed"]),
-        ("include/widget_test.hxx", 25, "LOW", ["Header/API files changed"]),
+        ("src/widget_test.c", 15, "LOW", ["Source implementation files changed", "Production code changed"]),
+        ("src/widget_test.cc", 15, "LOW", ["Source implementation files changed", "Production code changed"]),
+        ("src/widget_test.cpp", 15, "LOW", ["Source implementation files changed", "Production code changed"]),
+        ("src/widget_test.cxx", 15, "LOW", ["Source implementation files changed", "Production code changed"]),
+        ("include/widget_test.h", 35, "LOW", ["Header/API files changed", "Public API directory changed"]),
+        ("include/widget_test.hpp", 35, "LOW", ["Header/API files changed", "Public API directory changed"]),
+        ("include/widget_test.hh", 35, "LOW", ["Header/API files changed", "Public API directory changed"]),
+        ("include/widget_test.hxx", 35, "LOW", ["Header/API files changed", "Public API directory changed"]),
         ("tools/widget_test.py", 0, "LOW", ["Only low-risk files changed"]),
     ]
 
@@ -176,6 +236,9 @@ def test_score_is_capped_at_100_and_high_risk():
         "Build system files changed",
         "Header/API files changed",
         "Source implementation files changed",
+        "Production code changed",
+        "Public API directory changed",
+        "Build configuration directory changed",
         "No test files changed",
     ]
 
