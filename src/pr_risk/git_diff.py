@@ -8,7 +8,7 @@ class GitDiffError(Exception):
 def get_changed_files(repo: str, base: str) -> list[str]:
     try:
         result = subprocess.run(
-            ["git", "-C", repo, "diff", "--name-only", f"{base}...HEAD"],
+            ["git", "-C", repo, "diff", "--name-only", base],
             check=True,
             capture_output=True,
             text=True,
