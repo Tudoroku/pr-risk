@@ -46,6 +46,7 @@ python -m pytest
 
 ```bash
 pr-risk analyze --repo . --base main
+pr-risk --version
 ```
 
 ## Example Output
