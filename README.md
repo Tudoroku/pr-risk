@@ -11,6 +11,17 @@ Current scope:
 - C++ source/header and CMake file awareness.
 - Test-file detection for common test naming patterns.
 
+## Current Risk Signals
+
+Risk scoring is deterministic and based on changed file paths:
+
+- CMake/build files: `CMakeLists.txt` and `*.cmake` add build-system risk.
+- C++ header/API files: `.h`, `.hh`, `.hpp`, and `.hxx` add API risk.
+- C/C++ source files: `.c`, `.cc`, `.cpp`, and `.cxx` add implementation risk, capped across changed source files.
+- Directory-aware signals: top-level `src/` and `lib/` indicate production code, `include/` indicates public API, `cmake/` indicates build configuration, and `third_party/` or `vendor/` indicate vendored dependencies.
+- Test-file detection: paths under `tests/`, filenames starting with `test_`, and common `_test` suffixes count as test changes.
+- Docs-only changes: files under `docs/`, README files, `.md`, and `.markdown` changes stay low risk and do not trigger the missing-tests signal.
+
 ## Architecture
 
 - `cli.py`: command-line argument parsing and command dispatch.
