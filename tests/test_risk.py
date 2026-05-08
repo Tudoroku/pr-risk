@@ -5,10 +5,11 @@ def test_no_changed_files_has_no_tests_risk():
     result = calculate_risk([])
 
     assert result == RiskResult(
-        score=25,
+        score=0,
         level="LOW",
-        reasons=["No test files changed"],
+        reasons=["No changed files"],
     )
+    assert "No test files changed" not in result.reasons
 
 
 def test_cmake_header_and_source_files_add_expected_score():

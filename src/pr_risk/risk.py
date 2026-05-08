@@ -12,6 +12,9 @@ def calculate_risk(changed_files: list[str]) -> RiskResult:
     reasons: list[str] = []
     score = 0
 
+    if not changed_files:
+        return RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
     if any(_is_cmake_file(path) for path in changed_files):
         score += 25
         reasons.append("Changed CMake files")
