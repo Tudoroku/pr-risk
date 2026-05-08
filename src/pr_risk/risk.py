@@ -12,7 +12,15 @@ TEST_FILE_SUFFIXES = (
     "_test.hxx",
     "_test.py",
 )
+CMAKE_BUILD_FILE_SCORE = 25
+HEADER_API_FILE_SCORE = 25
+PER_SOURCE_FILE_SCORE = 5
+MAX_SOURCE_FILE_SCORE = 25
 DIRECTORY_RISK_SCORE = 10
+MISSING_TESTS_SCORE = 25
+MAX_RISK_SCORE = 100
+LOW_RISK_MAX_SCORE = 39
+MEDIUM_RISK_MAX_SCORE = 69
 
 
 @dataclass(frozen=True)
@@ -37,16 +45,16 @@ def calculate_risk(changed_files: list[str]) -> RiskResult:
         )
 
     if any(_is_cmake_file(path) for path in changed_files):
-        score += 25
+        score += CMAKE_BUILD_FILE_SCORE
         reasons.append("Build system files changed")
 
     if any(_is_header_file(path) for path in changed_files):
-        score += 25
+        score += HEADER_API_FILE_SCORE
         reasons.append("Header/API files changed")
 
     source_count = sum(1 for path in changed_files if _is_source_file(path))
     if source_count:
-        source_score = min(source_count * 5, 25)
+        source_score = min(source_count * PER_SOURCE_FILE_SCORE, MAX_SOURCE_FILE_SCORE)
         score += source_score
         reasons.append("Source implementation files changed")
 
@@ -67,13 +75,13 @@ def calculate_risk(changed_files: list[str]) -> RiskResult:
         reasons.append("Vendor/dependency files changed")
 
     if not any(_is_test_file(path) for path in changed_files):
-        score += 25
+        score += MISSING_TESTS_SCORE
         reasons.append("No test files changed")
 
     if not reasons:
         reasons.append("Only low-risk files changed")
 
-    score = min(score, 100)
+    score = min(score, MAX_RISK_SCORE)
     return RiskResult(score=score, level=_risk_level(score), reasons=reasons)
 
 
@@ -131,8 +139,8 @@ def _extension(path: str) -> str:
 def _risk_level(score: int) -> str:
     if score == 0:
         return "LOW"
-    if score <= 39:
+    if score <= LOW_RISK_MAX_SCORE:
         return "LOW"
-    if score <= 69:
+    if score <= MEDIUM_RISK_MAX_SCORE:
         return "MEDIUM"
     return "HIGH"
