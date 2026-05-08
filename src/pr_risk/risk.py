@@ -46,6 +46,9 @@ def calculate_risk(changed_files: list[str]) -> RiskResult:
         score += 25
         reasons.append("No test files changed")
 
+    if not reasons:
+        reasons.append("Only low-risk files changed")
+
     score = min(score, 100)
     return RiskResult(score=score, level=_risk_level(score), reasons=reasons)
 
@@ -87,7 +90,7 @@ def _extension(path: str) -> str:
 
 def _risk_level(score: int) -> str:
     if score == 0:
-        return "NONE"
+        return "LOW"
     if score <= 39:
         return "LOW"
     if score <= 69:

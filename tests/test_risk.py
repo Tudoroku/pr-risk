@@ -100,6 +100,14 @@ def test_no_test_files_changed_adds_25_points():
     ]
 
 
+def test_non_empty_low_risk_files_return_low_with_reason():
+    result = calculate_risk(["tests/test_only.py"])
+
+    assert result.score == 0
+    assert result.level == "LOW"
+    assert result.reasons == ["Only low-risk files changed"]
+
+
 def test_tests_directory_counts_as_test_file_change():
     result = calculate_risk(["tests/widget.cpp"])
 
@@ -126,7 +134,7 @@ def test_test_suffixes_count_as_test_file_changes():
         ("include/widget_test.hpp", 25, "LOW", ["Header/API files changed"]),
         ("include/widget_test.hh", 25, "LOW", ["Header/API files changed"]),
         ("include/widget_test.hxx", 25, "LOW", ["Header/API files changed"]),
-        ("tools/widget_test.py", 0, "NONE", []),
+        ("tools/widget_test.py", 0, "LOW", ["Only low-risk files changed"]),
     ]
 
     for path, score, level, reasons in cases:
@@ -173,7 +181,7 @@ def test_score_is_capped_at_100_and_high_risk():
 
 
 def test_level_boundaries():
-    assert calculate_risk(["tests/test_only.py"]).level == "NONE"
+    assert calculate_risk(["tests/test_only.py"]).level == "LOW"
     assert calculate_risk(["src/a.cpp", "tests/test_a.cpp"]).level == "LOW"
     assert (
         calculate_risk(["CMakeLists.txt", "include/a.hpp", "tests/test_a.py"]).level
