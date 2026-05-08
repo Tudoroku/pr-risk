@@ -1,5 +1,20 @@
+import tomllib
+from pathlib import Path
+
 from pr_risk import cli, git_diff
 from pr_risk.risk import RiskResult
+
+
+def test_version_prints_package_version(capsys):
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    expected_version = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))["project"]["version"]
+
+    exit_code = cli.app(["--version"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == f"{expected_version}\n"
+    assert captured.err == ""
 
 
 def test_analyze_calls_diff_risk_and_report(monkeypatch):

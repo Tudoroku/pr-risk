@@ -1,4 +1,5 @@
 import argparse
+import importlib.metadata
 import sys
 
 from pr_risk import git_diff, report, risk
@@ -7,6 +8,10 @@ from pr_risk import git_diff, report, risk
 def app(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+
+    if args.version:
+        print(_get_version())
+        return 0
 
     if args.command == "analyze":
         return _run_analyze(args.repo, args.base)
@@ -17,6 +22,7 @@ def app(argv: list[str] | None = None) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pr-risk")
+    parser.add_argument("--version", action="store_true", help="show package version and exit")
     subparsers = parser.add_subparsers(dest="command")
 
     analyze_parser = subparsers.add_parser("analyze")
@@ -24,6 +30,10 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--base", default="main")
 
     return parser
+
+
+def _get_version() -> str:
+    return importlib.metadata.version("pr-risk")
 
 
 def _run_analyze(repo: str, base: str) -> int:
