@@ -3,8 +3,9 @@ import importlib.metadata
 import json
 import sys
 from dataclasses import asdict
+from pathlib import Path
 
-from pr_risk import api_change, cmake_analysis, diff_stats, git_diff, report, risk
+from pr_risk import api_change, cmake_analysis, config, diff_stats, git_diff, report, risk, runner
 
 
 def app(argv: list[str] | None = None) -> int:
@@ -16,7 +17,7 @@ def app(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "analyze":
-        return _run_analyze(args.repo, args.base, args.format)
+        return _run_analyze(args.repo, args.base, args.format, args.run_checks)
 
     parser.print_help()
     return 1
@@ -31,6 +32,7 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--repo", default=".")
     analyze_parser.add_argument("--base", default="main")
     analyze_parser.add_argument("--format", choices=("text", "json"), default="text")
+    analyze_parser.add_argument("--run-checks", action="store_true", default=False)
 
     return parser
 
@@ -39,7 +41,7 @@ def _get_version() -> str:
     return importlib.metadata.version("pr-risk")
 
 
-def _run_analyze(repo: str, base: str, output_format: str) -> int:
+def _run_analyze(repo: str, base: str, output_format: str, run_checks: bool) -> int:
     try:
         changed_files = git_diff.get_changed_files(repo=repo, base=base)
         numstat_text = git_diff.get_diff_numstat(repo=repo, base=base)
@@ -52,6 +54,11 @@ def _run_analyze(repo: str, base: str, output_format: str) -> int:
     cmake_signals = cmake_analysis.analyze_cmake_changes(patch_text)
     api_signals = api_change.analyze_api_changes(patch_text)
     result = risk.calculate_risk(changed_files, stats, cmake_signals, api_signals)
+
+    if run_checks:
+        execution_config = config.load_config(Path(repo))
+        runner.run_execution_checks(Path(repo), execution_config)
+
     if output_format == "json":
         print(json.dumps(_json_report(changed_files, result, stats, cmake_signals, api_signals)))
     else:

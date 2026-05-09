@@ -243,3 +243,126 @@ def test_analyze_returns_non_zero_for_expected_git_error(monkeypatch, capsys):
     assert exit_code == 1
     assert captured.out == ""
     assert captured.err == "error: not a git repository\n"
+
+
+def test_analyze_without_run_checks_does_not_load_config_or_run_commands(monkeypatch):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+    monkeypatch.setattr(
+        cli.config,
+        "load_config",
+        lambda repo_path: pytest.fail("config should not be loaded without --run-checks"),
+    )
+    monkeypatch.setattr(
+        cli.runner,
+        "run_execution_checks",
+        lambda repo_path, execution_config: pytest.fail("checks should not run without --run-checks"),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main"])
+
+    assert exit_code == 0
+
+
+def test_analyze_run_checks_loads_config_and_runs_execution_checks(monkeypatch):
+    calls = []
+    risk_result = RiskResult(25, "LOW", ["reason"])
+    execution_config = cli.config.ExecutionConfig(
+        build_command="cmake --build build",
+        test_command="ctest --test-dir build",
+        timeout_seconds=10,
+    )
+    _stub_analyze_pipeline(monkeypatch, risk_result)
+
+    def fake_load_config(repo_path):
+        calls.append(("load_config", repo_path))
+        return execution_config
+
+    def fake_run_execution_checks(repo_path, loaded_config):
+        calls.append(("run_execution_checks", repo_path, loaded_config))
+        return cli.runner.ExecutionResult(build=None, test=None)
+
+    monkeypatch.setattr(cli.config, "load_config", fake_load_config)
+    monkeypatch.setattr(cli.runner, "run_execution_checks", fake_run_execution_checks)
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--run-checks"])
+
+    assert exit_code == 0
+    assert calls == [
+        ("load_config", Path(".")),
+        ("run_execution_checks", Path("."), execution_config),
+    ]
+
+
+def test_analyze_run_checks_with_no_config_or_commands_does_not_crash(monkeypatch, tmp_path):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+
+    exit_code = cli.app(["analyze", "--repo", str(tmp_path), "--base", "main", "--run-checks"])
+
+    assert exit_code == 0
+
+
+def test_analyze_run_checks_failed_build_does_not_change_json_risk(monkeypatch, capsys):
+    risk_result = RiskResult(42, "MEDIUM", ["Source implementation files changed"])
+    _stub_analyze_pipeline(monkeypatch, risk_result)
+    monkeypatch.setattr(
+        cli.config,
+        "load_config",
+        lambda repo_path: cli.config.ExecutionConfig(
+            build_command="build command",
+            test_command="test command",
+            timeout_seconds=10,
+        ),
+    )
+    monkeypatch.setattr(
+        cli.runner,
+        "run_execution_checks",
+        lambda repo_path, execution_config: cli.runner.ExecutionResult(
+            build=cli.runner.CommandResult(
+                name="build",
+                command="build command",
+                exit_code=1,
+                stdout="build stdout",
+                stderr="build stderr",
+                timed_out=False,
+                duration_seconds=0.1,
+            ),
+            test=None,
+            test_skipped=True,
+            test_skip_reason="Build failed",
+        ),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "json", "--run-checks"])
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert exit_code == 0
+    assert captured.err == ""
+    assert output["score"] == 42
+    assert output["level"] == "MEDIUM"
+    assert "execution" not in output
+
+
+def _stub_analyze_pipeline(monkeypatch, risk_result):
+    stats = DiffStats(
+        files_changed=1,
+        lines_added=10,
+        lines_deleted=2,
+        total_churn=12,
+    )
+    monkeypatch.setattr(cli.git_diff, "get_changed_files", lambda repo, base: ["src/widget.cpp"])
+    monkeypatch.setattr(cli.git_diff, "get_diff_numstat", lambda repo, base: "10\t2\tsrc/widget.cpp\n")
+    monkeypatch.setattr(cli.git_diff, "get_diff_patch", lambda repo, base: "patch text")
+    monkeypatch.setattr(cli.diff_stats, "parse_numstat", lambda numstat_text: stats)
+    monkeypatch.setattr(cli.cmake_analysis, "analyze_cmake_changes", lambda patch_text: [])
+    monkeypatch.setattr(cli.api_change, "analyze_api_changes", lambda patch_text: [])
+    monkeypatch.setattr(
+        cli.risk,
+        "calculate_risk",
+        lambda changed_files, diff_stats, cmake_signals, api_signals: risk_result,
+    )
+    monkeypatch.setattr(
+        cli.report,
+        "print_report",
+        lambda changed_files, risk, diff_stats, cmake_signals, api_signals: None,
+    )
