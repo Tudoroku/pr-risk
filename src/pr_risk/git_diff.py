@@ -37,3 +37,20 @@ def get_diff_numstat(repo: str, base: str) -> str:
         raise GitDiffError(message) from exc
 
     return result.stdout
+
+
+def get_diff_patch(repo: str, base: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo, "diff", "--unified=0", base],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise GitDiffError("git executable was not found") from exc
+    except subprocess.CalledProcessError as exc:
+        message = exc.stderr.strip() or exc.stdout.strip() or "failed to read git diff"
+        raise GitDiffError(message) from exc
+
+    return result.stdout
