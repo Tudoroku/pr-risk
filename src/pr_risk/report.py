@@ -4,6 +4,7 @@ from rich.table import Table
 
 from pr_risk.diff_stats import DiffStats
 from pr_risk.risk import RiskResult
+from pr_risk.runner import CommandResult, ExecutionResult
 
 
 def print_report(
@@ -12,6 +13,7 @@ def print_report(
     diff_stats: DiffStats | None = None,
     cmake_signals: list[str] | None = None,
     api_signals: list[str] | None = None,
+    execution_result: ExecutionResult | None = None,
 ) -> None:
     console = Console()
 
@@ -25,6 +27,8 @@ def print_report(
     for reason in risk.reasons:
         console.print(f"- {reason}")
     _print_patch_signals(console, cmake_signals or [], api_signals or [])
+    if execution_result is not None:
+        _print_execution_checks(console, execution_result)
 
 
 def _print_patch_signals(console: Console, cmake_signals: list[str], api_signals: list[str]) -> None:
@@ -42,6 +46,43 @@ def _print_patch_signals(console: Console, cmake_signals: list[str], api_signals
         console.print("Header/API:")
         for signal in api_signals:
             console.print(f"- {signal}")
+
+
+def _print_execution_checks(console: Console, execution_result: ExecutionResult) -> None:
+    console.print("Execution Checks:")
+    if execution_result.build is None and execution_result.test is None and not execution_result.test_skipped:
+        console.print("No execution commands configured")
+        return
+
+    console.print(f"- Build: {_format_command_status(execution_result.build)}")
+    console.print(f"- Test: {_format_test_status(execution_result)}")
+
+
+def _format_test_status(execution_result: ExecutionResult) -> str:
+    if execution_result.test_skipped:
+        reason = execution_result.test_skip_reason or "Skipped"
+        return f"skipped ({reason})"
+
+    return _format_command_status(execution_result.test)
+
+
+def _format_command_status(result: CommandResult | None) -> str:
+    if result is None:
+        return "not configured"
+
+    if result.timed_out:
+        status = "timed out"
+    elif result.exit_code == 0:
+        status = "passed"
+    else:
+        status = "failed"
+
+    details = []
+    if result.exit_code is not None:
+        details.append(f"exit code {result.exit_code}")
+    details.append(f"{result.duration_seconds:.1f}s")
+
+    return f"{status} ({', '.join(details)})"
 
 
 def _changed_files_table(changed_files: list[str]) -> Table:

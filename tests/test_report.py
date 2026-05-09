@@ -1,6 +1,7 @@
 from pr_risk.diff_stats import DiffStats
 from pr_risk.report import print_report
 from pr_risk.risk import RiskResult
+from pr_risk.runner import CommandResult, ExecutionResult
 
 
 def test_print_report_outputs_changed_files_and_risk_summary(capsys):
@@ -91,3 +92,163 @@ def test_print_report_outputs_no_patch_signals_cleanly(capsys):
     assert "No patch signals detected" in output
     assert "CMake:" not in output
     assert "Header/API:" not in output
+
+
+def test_print_report_omits_execution_checks_when_not_provided(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report([], risk)
+
+    output = capsys.readouterr().out
+    assert "Execution Checks:" not in output
+
+
+def test_print_report_outputs_no_execution_commands_configured(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report([], risk, execution_result=ExecutionResult(build=None, test=None))
+
+    output = capsys.readouterr().out
+    assert "Execution Checks:" in output
+    assert "No execution commands configured" in output
+
+
+def test_print_report_outputs_build_not_configured(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report([], risk, execution_result=ExecutionResult(build=None, test=_command_result("test", 0, 2.3)))
+
+    output = capsys.readouterr().out
+    assert "- Build: not configured" in output
+
+
+def test_print_report_outputs_build_passed(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report([], risk, execution_result=ExecutionResult(build=_command_result("build", 0, 12.4), test=None))
+
+    output = capsys.readouterr().out
+    assert "- Build: passed (exit code 0, 12.4s)" in output
+
+
+def test_print_report_outputs_build_failed(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report([], risk, execution_result=ExecutionResult(build=_command_result("build", 8, 5.1), test=None))
+
+    output = capsys.readouterr().out
+    assert "- Build: failed (exit code 8, 5.1s)" in output
+
+
+def test_print_report_outputs_build_timed_out(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report(
+        [],
+        risk,
+        execution_result=ExecutionResult(build=_command_result("build", None, 10.0, timed_out=True), test=None),
+    )
+
+    output = capsys.readouterr().out
+    assert "- Build: timed out (10.0s)" in output
+
+
+def test_print_report_outputs_test_not_configured(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report([], risk, execution_result=ExecutionResult(build=_command_result("build", 0, 1.2), test=None))
+
+    output = capsys.readouterr().out
+    assert "- Test: not configured" in output
+
+
+def test_print_report_outputs_test_passed(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report(
+        [],
+        risk,
+        execution_result=ExecutionResult(
+            build=_command_result("build", 0, 1.2),
+            test=_command_result("test", 0, 3.4),
+        ),
+    )
+
+    output = capsys.readouterr().out
+    assert "- Test: passed (exit code 0, 3.4s)" in output
+
+
+def test_print_report_outputs_test_failed(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report([], risk, execution_result=ExecutionResult(build=None, test=_command_result("test", 8, 5.1)))
+
+    output = capsys.readouterr().out
+    assert "- Test: failed (exit code 8, 5.1s)" in output
+
+
+def test_print_report_outputs_test_timed_out(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report(
+        [],
+        risk,
+        execution_result=ExecutionResult(build=None, test=_command_result("test", None, 10.0, timed_out=True)),
+    )
+
+    output = capsys.readouterr().out
+    assert "- Test: timed out (10.0s)" in output
+
+
+def test_print_report_outputs_test_skipped_with_reason(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report(
+        [],
+        risk,
+        execution_result=ExecutionResult(
+            build=_command_result("build", 1, 2.0),
+            test=None,
+            test_skipped=True,
+            test_skip_reason="Build failed",
+        ),
+    )
+
+    output = capsys.readouterr().out
+    assert "- Test: skipped (Build failed)" in output
+
+
+def test_print_report_does_not_output_execution_stdout_or_stderr(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report(
+        [],
+        risk,
+        execution_result=ExecutionResult(
+            build=_command_result("build", 0, 1.0, stdout="secret stdout", stderr="secret stderr"),
+            test=None,
+        ),
+    )
+
+    output = capsys.readouterr().out
+    assert "secret stdout" not in output
+    assert "secret stderr" not in output
+
+
+def _command_result(
+    name: str,
+    exit_code: int | None,
+    duration_seconds: float,
+    timed_out: bool = False,
+    stdout: str = "",
+    stderr: str = "",
+) -> CommandResult:
+    return CommandResult(
+        name=name,
+        command=f"{name} command",
+        exit_code=exit_code,
+        stdout=stdout,
+        stderr=stderr,
+        timed_out=timed_out,
+        duration_seconds=duration_seconds,
+    )

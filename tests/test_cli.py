@@ -266,6 +266,7 @@ def test_analyze_without_run_checks_does_not_load_config_or_run_commands(monkeyp
 def test_analyze_run_checks_loads_config_and_runs_execution_checks(monkeypatch):
     calls = []
     risk_result = RiskResult(25, "LOW", ["reason"])
+    execution_result = cli.runner.ExecutionResult(build=None, test=None)
     execution_config = cli.config.ExecutionConfig(
         build_command="cmake --build build",
         test_command="ctest --test-dir build",
@@ -279,10 +280,14 @@ def test_analyze_run_checks_loads_config_and_runs_execution_checks(monkeypatch):
 
     def fake_run_execution_checks(repo_path, loaded_config):
         calls.append(("run_execution_checks", repo_path, loaded_config))
-        return cli.runner.ExecutionResult(build=None, test=None)
+        return execution_result
+
+    def fake_print_report(changed_files, risk, diff_stats, cmake_signals, api_signals, received_execution_result):
+        calls.append(("report", received_execution_result))
 
     monkeypatch.setattr(cli.config, "load_config", fake_load_config)
     monkeypatch.setattr(cli.runner, "run_execution_checks", fake_run_execution_checks)
+    monkeypatch.setattr(cli.report, "print_report", fake_print_report)
 
     exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--run-checks"])
 
@@ -290,6 +295,7 @@ def test_analyze_run_checks_loads_config_and_runs_execution_checks(monkeypatch):
     assert calls == [
         ("load_config", Path(".")),
         ("run_execution_checks", Path("."), execution_config),
+        ("report", execution_result),
     ]
 
 
@@ -343,6 +349,49 @@ def test_analyze_run_checks_failed_build_does_not_change_json_risk(monkeypatch, 
     assert "execution" not in output
 
 
+def test_analyze_run_checks_json_does_not_pass_execution_to_text_report(monkeypatch, capsys):
+    risk_result = RiskResult(42, "MEDIUM", ["Source implementation files changed"])
+    _stub_analyze_pipeline(monkeypatch, risk_result)
+    monkeypatch.setattr(
+        cli.config,
+        "load_config",
+        lambda repo_path: cli.config.ExecutionConfig(
+            build_command="build command",
+            test_command=None,
+            timeout_seconds=10,
+        ),
+    )
+    monkeypatch.setattr(
+        cli.runner,
+        "run_execution_checks",
+        lambda repo_path, execution_config: cli.runner.ExecutionResult(
+            build=cli.runner.CommandResult(
+                name="build",
+                command="build command",
+                exit_code=0,
+                stdout="build stdout",
+                stderr="build stderr",
+                timed_out=False,
+                duration_seconds=0.1,
+            ),
+            test=None,
+        ),
+    )
+    monkeypatch.setattr(
+        cli.report,
+        "print_report",
+        lambda *args, **kwargs: pytest.fail("text report should not be printed for json output"),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "json", "--run-checks"])
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert exit_code == 0
+    assert captured.err == ""
+    assert "execution" not in output
+
+
 def _stub_analyze_pipeline(monkeypatch, risk_result):
     stats = DiffStats(
         files_changed=1,
@@ -364,5 +413,5 @@ def _stub_analyze_pipeline(monkeypatch, risk_result):
     monkeypatch.setattr(
         cli.report,
         "print_report",
-        lambda changed_files, risk, diff_stats, cmake_signals, api_signals: None,
+        lambda changed_files, risk, diff_stats, cmake_signals, api_signals, execution_result=None: None,
     )
