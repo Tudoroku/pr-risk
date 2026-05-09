@@ -51,7 +51,7 @@ def _run_analyze(repo: str, base: str, output_format: str) -> int:
     stats = diff_stats.parse_numstat(numstat_text)
     cmake_signals = cmake_analysis.analyze_cmake_changes(patch_text)
     api_signals = api_change.analyze_api_changes(patch_text)
-    result = risk.calculate_risk(changed_files, stats)
+    result = risk.calculate_risk(changed_files, stats, cmake_signals, api_signals)
     if output_format == "json":
         print(json.dumps(_json_report(changed_files, result, stats, cmake_signals, api_signals)))
     else:

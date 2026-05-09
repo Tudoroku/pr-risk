@@ -55,8 +55,8 @@ def test_analyze_calls_diff_risk_and_report(monkeypatch):
         calls.append(("api", patch_text))
         return ["API-like header change detected in include/widget.hpp"]
 
-    def fake_calculate_risk(changed_files, diff_stats):
-        calls.append(("risk", changed_files, diff_stats))
+    def fake_calculate_risk(changed_files, diff_stats, cmake_signals, api_signals):
+        calls.append(("risk", changed_files, diff_stats, cmake_signals, api_signals))
         return risk_result
 
     def fake_print_report(changed_files, risk, diff_stats, cmake_signals, api_signals):
@@ -81,7 +81,13 @@ def test_analyze_calls_diff_risk_and_report(monkeypatch):
         ("parse_numstat", "10\t2\tsrc/widget.cpp\n"),
         ("cmake", "patch text"),
         ("api", "patch text"),
-        ("risk", ["src/widget.cpp"], stats),
+        (
+            "risk",
+            ["src/widget.cpp"],
+            stats,
+            ["Link dependencies changed"],
+            ["API-like header change detected in include/widget.hpp"],
+        ),
         (
             "report",
             ["src/widget.cpp"],
@@ -109,7 +115,11 @@ def test_analyze_format_text_calls_report(monkeypatch):
     monkeypatch.setattr(cli.diff_stats, "parse_numstat", lambda numstat_text: stats)
     monkeypatch.setattr(cli.cmake_analysis, "analyze_cmake_changes", lambda patch_text: [])
     monkeypatch.setattr(cli.api_change, "analyze_api_changes", lambda patch_text: [])
-    monkeypatch.setattr(cli.risk, "calculate_risk", lambda changed_files, diff_stats: risk_result)
+    monkeypatch.setattr(
+        cli.risk,
+        "calculate_risk",
+        lambda changed_files, diff_stats, cmake_signals, api_signals: risk_result,
+    )
     monkeypatch.setattr(
         cli.report,
         "print_report",
@@ -144,7 +154,11 @@ def test_analyze_format_json_prints_valid_json(monkeypatch, capsys):
     monkeypatch.setattr(cli.diff_stats, "parse_numstat", lambda numstat_text: stats)
     monkeypatch.setattr(cli.cmake_analysis, "analyze_cmake_changes", lambda patch_text: ["Link dependencies changed"])
     monkeypatch.setattr(cli.api_change, "analyze_api_changes", lambda patch_text: [])
-    monkeypatch.setattr(cli.risk, "calculate_risk", lambda changed_files, diff_stats: risk_result)
+    monkeypatch.setattr(
+        cli.risk,
+        "calculate_risk",
+        lambda changed_files, diff_stats, cmake_signals, api_signals: risk_result,
+    )
     monkeypatch.setattr(
         cli.report,
         "print_report",
@@ -203,7 +217,7 @@ def test_analyze_uses_default_repo_and_base(monkeypatch):
     monkeypatch.setattr(
         cli.risk,
         "calculate_risk",
-        lambda changed_files, diff_stats: RiskResult(0, "NONE", []),
+        lambda changed_files, diff_stats, cmake_signals, api_signals: RiskResult(0, "NONE", []),
     )
     monkeypatch.setattr(
         cli.report,

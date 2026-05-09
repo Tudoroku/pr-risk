@@ -25,9 +25,18 @@ LARGE_DIFF_SCORE_300 = 20
 LARGE_DIFF_SCORE_700 = 30
 MANY_FILES_SCORE_10 = 15
 MANY_FILES_SCORE_25 = 25
+CMAKE_PATCH_SIGNAL_SCORE = 15
+SENSITIVE_CMAKE_PATCH_SIGNAL_SCORE = 20
+API_PATCH_SIGNAL_SCORE = 15
 MAX_RISK_SCORE = 100
 LOW_RISK_MAX_SCORE = 39
 MEDIUM_RISK_MAX_SCORE = 69
+SENSITIVE_CMAKE_SIGNALS = {
+    "Library target changed",
+    "Executable target changed",
+    "Link dependencies changed",
+    "Package dependency changed",
+}
 
 
 @dataclass(frozen=True)
@@ -40,6 +49,8 @@ class RiskResult:
 def calculate_risk(
     changed_files: list[str],
     diff_stats: DiffStats | None = None,
+    cmake_signals: list[str] | None = None,
+    api_signals: list[str] | None = None,
 ) -> RiskResult:
     reasons: list[str] = []
     score = 0
@@ -87,6 +98,18 @@ def calculate_risk(
     if not any(_is_test_file(path) for path in changed_files):
         score += MISSING_TESTS_SCORE
         reasons.append("No test files changed")
+
+    if cmake_signals:
+        score += CMAKE_PATCH_SIGNAL_SCORE
+        reasons.append("CMake patch signals detected")
+
+        if any(signal in SENSITIVE_CMAKE_SIGNALS for signal in cmake_signals):
+            score += SENSITIVE_CMAKE_PATCH_SIGNAL_SCORE
+            reasons.append("Build/link/package configuration changed")
+
+    if api_signals:
+        score += API_PATCH_SIGNAL_SCORE
+        reasons.append("API-like header changes detected")
 
     if diff_stats is not None:
         churn_score = _total_churn_score(diff_stats.total_churn)

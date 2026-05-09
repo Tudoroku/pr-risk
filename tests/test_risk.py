@@ -177,6 +177,166 @@ def test_docs_only_changes_stay_low_with_churn_stats():
     assert result.reasons == ["Only documentation files changed"]
 
 
+def test_no_patch_signals_preserves_existing_behavior():
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        cmake_signals=[],
+        api_signals=[],
+    )
+
+    assert result.score == 20
+    assert result.level == "LOW"
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+    ]
+
+
+def test_one_non_sensitive_cmake_signal_adds_category_score():
+    result = calculate_risk(["tests/test_only.py"], cmake_signals=["CMake minimum version changed"])
+
+    assert result.score == 15
+    assert result.level == "LOW"
+    assert result.reasons == ["CMake patch signals detected"]
+
+
+def test_multiple_non_sensitive_cmake_signals_are_not_overcounted():
+    result = calculate_risk(
+        ["tests/test_only.py"],
+        cmake_signals=[
+            "CMake minimum version changed",
+            "Compiler options changed",
+            "Install rules changed",
+        ],
+    )
+
+    assert result.score == 15
+    assert result.reasons == ["CMake patch signals detected"]
+
+
+def test_one_sensitive_cmake_signal_adds_category_and_sensitive_score():
+    result = calculate_risk(["tests/test_only.py"], cmake_signals=["Link dependencies changed"])
+
+    assert result.score == 35
+    assert result.level == "LOW"
+    assert result.reasons == [
+        "CMake patch signals detected",
+        "Build/link/package configuration changed",
+    ]
+
+
+def test_multiple_sensitive_cmake_signals_are_not_overcounted():
+    result = calculate_risk(
+        ["tests/test_only.py"],
+        cmake_signals=[
+            "Library target changed",
+            "Executable target changed",
+            "Link dependencies changed",
+            "Package dependency changed",
+        ],
+    )
+
+    assert result.score == 35
+    assert result.reasons == [
+        "CMake patch signals detected",
+        "Build/link/package configuration changed",
+    ]
+
+
+def test_one_api_signal_adds_category_score():
+    result = calculate_risk(
+        ["tests/test_only.py"],
+        api_signals=["API-like header change detected in include/widget.hpp"],
+    )
+
+    assert result.score == 15
+    assert result.level == "LOW"
+    assert result.reasons == ["API-like header changes detected"]
+
+
+def test_multiple_api_signals_are_not_overcounted():
+    result = calculate_risk(
+        ["tests/test_only.py"],
+        api_signals=[
+            "API-like header change detected in include/widget.hpp",
+            "API-like header change detected in include/gadget.hpp",
+            "API-like header change detected in include/detail.hpp",
+        ],
+    )
+
+    assert result.score == 15
+    assert result.reasons == ["API-like header changes detected"]
+
+
+def test_cmake_and_api_signals_score_together():
+    result = calculate_risk(
+        ["tests/test_only.py"],
+        cmake_signals=["Link dependencies changed"],
+        api_signals=["API-like header change detected in include/widget.hpp"],
+    )
+
+    assert result.score == 50
+    assert result.level == "MEDIUM"
+    assert result.reasons == [
+        "CMake patch signals detected",
+        "Build/link/package configuration changed",
+        "API-like header changes detected",
+    ]
+
+
+def test_score_cap_still_applies_with_patch_signal_scoring():
+    result = calculate_risk(
+        [
+            "cmake/toolchain.cmake",
+            "include/widget.h",
+            "src/a.cpp",
+            "src/b.cpp",
+            "src/c.cpp",
+            "src/d.cpp",
+            "src/e.cpp",
+        ],
+        cmake_signals=["Link dependencies changed"],
+        api_signals=["API-like header change detected in include/widget.h"],
+    )
+
+    assert result.score == 100
+    assert result.level == "HIGH"
+    assert result.reasons == [
+        "Build system files changed",
+        "Header/API files changed",
+        "Source implementation files changed",
+        "Production code changed",
+        "Public API directory changed",
+        "Build configuration directory changed",
+        "No test files changed",
+        "CMake patch signals detected",
+        "Build/link/package configuration changed",
+        "API-like header changes detected",
+    ]
+
+
+def test_empty_diff_ignores_patch_signals():
+    result = calculate_risk(
+        [],
+        cmake_signals=["Link dependencies changed"],
+        api_signals=["API-like header change detected in include/widget.hpp"],
+    )
+
+    assert result == RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+
+def test_docs_only_changes_stay_low_with_patch_signals():
+    result = calculate_risk(
+        ["README.md", "docs/guide.md"],
+        cmake_signals=["Link dependencies changed"],
+        api_signals=["API-like header change detected in include/widget.hpp"],
+    )
+
+    assert result.score == 0
+    assert result.level == "LOW"
+    assert result.reasons == ["Only documentation files changed"]
+
+
 def test_tests_directory_counts_as_test_file_change():
     result = calculate_risk(["tests/widget.cpp"])
 
