@@ -83,8 +83,33 @@ python -m pytest
 ```bash
 pr-risk analyze --repo . --base main
 pr-risk analyze --repo . --base main --format json
+pr-risk analyze --repo . --base main --run-checks
 pr-risk --version
 ```
+
+By default, analysis does not run local commands. Use `--run-checks` to add configured build/test execution evidence.
+
+## Configuration
+
+v0.4.0 supports configured build/test execution evidence through `.pr-risk.toml`:
+
+```toml
+[commands]
+build = "cmake --build build"
+test = "ctest --test-dir build --output-on-failure"
+
+[execution]
+timeout_seconds = 300
+```
+
+- `[commands].build` is optional.
+- `[commands].test` is optional.
+- `[execution].timeout_seconds` is optional and defaults to `300`.
+- Commands run only when `--run-checks` is provided.
+- Failed build/test execution is reported as evidence only and does not change the risk score in v0.4.0.
+- stdout/stderr are captured internally but are not printed in text or JSON output in v0.4.0.
+
+Security warning: commands are executed locally through the system shell. Only run trusted repository configs.
 
 ## Text Output
 
@@ -126,10 +151,19 @@ Header/API:
 - API-like header change detected in include/widget.hpp
 ```
 
+With `--run-checks`, text output includes execution evidence:
+
+```text
+Execution Checks:
+- Build: passed (exit code 0, 12.4s)
+- Test: failed (exit code 8, 5.1s)
+```
+
 ## JSON Output
 
 ```bash
 pr-risk analyze --repo . --base main --format json
+pr-risk analyze --repo . --base main --format json --run-checks
 ```
 
 The JSON output contains:
@@ -140,6 +174,7 @@ The JSON output contains:
 - `diff_stats`: diff statistics object
 - `patch_signals`: heuristic CMake and API-like patch signals
 - `reasons`: deterministic reasons contributing to the score
+- `execution`: configured build/test execution evidence
 
 Patch signals use this shape:
 
@@ -148,6 +183,42 @@ Patch signals use this shape:
   "patch_signals": {
     "cmake": ["Link dependencies changed"],
     "api": ["API-like header change detected in include/widget.hpp"]
+  }
+}
+```
+
+Without `--run-checks`, commands are not run and JSON includes:
+
+```json
+{
+  "execution": {
+    "run": false
+  }
+}
+```
+
+With `--run-checks`, JSON execution evidence uses this shape:
+
+```json
+{
+  "execution": {
+    "run": true,
+    "build": {
+      "configured": true,
+      "command": "cmake --build build",
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_seconds": 12.4
+    },
+    "test": {
+      "configured": true,
+      "command": "ctest --test-dir build --output-on-failure",
+      "exit_code": 8,
+      "timed_out": false,
+      "duration_seconds": 5.1,
+      "skipped": false,
+      "skip_reason": null
+    }
   }
 }
 ```
@@ -181,7 +252,10 @@ Example:
     "Build/link/package configuration changed",
     "API-like header changes detected",
     "No test files changed"
-  ]
+  ],
+  "execution": {
+    "run": false
+  }
 }
 ```
 
@@ -190,7 +264,12 @@ Example:
 - Deterministic heuristic analysis only.
 - Local CLI only.
 - No GitHub integration yet.
-- No build/test execution yet.
+- Commands run locally, not sandboxed.
+- User is responsible for command safety.
+- No Docker isolation yet.
+- No automatic build discovery yet.
+- No stdout/stderr artifact storage yet.
+- Execution does not affect risk score yet.
 - Not a compiler.
 - Not full C++ parsing.
 - Not ABI analysis.
@@ -198,4 +277,5 @@ Example:
 
 ## Roadmap
 
-- v0.4.0: sandboxed build/test execution.
+- v0.5.0: execution-aware risk scoring.
+- v0.6.0: Docker sandbox execution.
