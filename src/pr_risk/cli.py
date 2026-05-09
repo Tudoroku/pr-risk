@@ -2,7 +2,7 @@ import argparse
 import importlib.metadata
 import sys
 
-from pr_risk import git_diff, report, risk
+from pr_risk import diff_stats, git_diff, report, risk
 
 
 def app(argv: list[str] | None = None) -> int:
@@ -39,12 +39,14 @@ def _get_version() -> str:
 def _run_analyze(repo: str, base: str) -> int:
     try:
         changed_files = git_diff.get_changed_files(repo=repo, base=base)
+        numstat_text = git_diff.get_diff_numstat(repo=repo, base=base)
     except git_diff.GitDiffError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    stats = diff_stats.parse_numstat(numstat_text)
     result = risk.calculate_risk(changed_files)
-    report.print_report(changed_files, result)
+    report.print_report(changed_files, result, stats)
     return 0
 
 

@@ -1,6 +1,7 @@
 import tomllib
 from pathlib import Path
 
+from pr_risk.diff_stats import DiffStats
 from pr_risk import cli, git_diff
 from pr_risk.risk import RiskResult
 
@@ -20,19 +21,35 @@ def test_version_prints_package_version(capsys):
 def test_analyze_calls_diff_risk_and_report(monkeypatch):
     calls = []
     risk_result = RiskResult(score=30, level="LOW", reasons=["reason"])
+    stats = DiffStats(
+        files_changed=1,
+        lines_added=10,
+        lines_deleted=2,
+        total_churn=12,
+    )
 
     def fake_get_changed_files(repo, base):
-        calls.append(("diff", repo, base))
+        calls.append(("changed_files", repo, base))
         return ["src/widget.cpp"]
+
+    def fake_get_diff_numstat(repo, base):
+        calls.append(("numstat", repo, base))
+        return "10\t2\tsrc/widget.cpp\n"
+
+    def fake_parse_numstat(numstat_text):
+        calls.append(("parse_numstat", numstat_text))
+        return stats
 
     def fake_calculate_risk(changed_files):
         calls.append(("risk", changed_files))
         return risk_result
 
-    def fake_print_report(changed_files, risk):
-        calls.append(("report", changed_files, risk))
+    def fake_print_report(changed_files, risk, diff_stats):
+        calls.append(("report", changed_files, risk, diff_stats))
 
     monkeypatch.setattr(cli.git_diff, "get_changed_files", fake_get_changed_files)
+    monkeypatch.setattr(cli.git_diff, "get_diff_numstat", fake_get_diff_numstat)
+    monkeypatch.setattr(cli.diff_stats, "parse_numstat", fake_parse_numstat)
     monkeypatch.setattr(cli.risk, "calculate_risk", fake_calculate_risk)
     monkeypatch.setattr(cli.report, "print_report", fake_print_report)
 
@@ -40,9 +57,11 @@ def test_analyze_calls_diff_risk_and_report(monkeypatch):
 
     assert exit_code == 0
     assert calls == [
-        ("diff", ".", "main"),
+        ("changed_files", ".", "main"),
+        ("numstat", ".", "main"),
+        ("parse_numstat", "10\t2\tsrc/widget.cpp\n"),
         ("risk", ["src/widget.cpp"]),
-        ("report", ["src/widget.cpp"], risk_result),
+        ("report", ["src/widget.cpp"], risk_result, stats),
     ]
 
 
@@ -55,8 +74,10 @@ def test_analyze_uses_default_repo_and_base(monkeypatch):
         return []
 
     monkeypatch.setattr(cli.git_diff, "get_changed_files", fake_get_changed_files)
+    monkeypatch.setattr(cli.git_diff, "get_diff_numstat", lambda repo, base: "")
+    monkeypatch.setattr(cli.diff_stats, "parse_numstat", lambda numstat_text: DiffStats(0, 0, 0, 0))
     monkeypatch.setattr(cli.risk, "calculate_risk", lambda changed_files: RiskResult(0, "NONE", []))
-    monkeypatch.setattr(cli.report, "print_report", lambda changed_files, risk: None)
+    monkeypatch.setattr(cli.report, "print_report", lambda changed_files, risk, diff_stats: None)
 
     exit_code = cli.app(["analyze"])
 
