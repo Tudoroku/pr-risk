@@ -1,7 +1,8 @@
 import subprocess
 import sys
 
-from pr_risk.runner import CommandResult, run_command
+from pr_risk.config import ExecutionConfig
+from pr_risk.runner import CommandResult, ExecutionResult, run_command, run_execution_checks
 
 
 def _write_script(tmp_path, name, contents):
@@ -100,3 +101,175 @@ def test_run_command_respects_cwd(tmp_path):
     result = run_command("cwd", _python_command(script), work_dir, 5)
 
     assert result.stdout.strip() == str(work_dir)
+
+
+def test_run_execution_checks_no_commands(tmp_path):
+    config = ExecutionConfig(
+        build_command=None,
+        test_command=None,
+        timeout_seconds=5,
+    )
+
+    result = run_execution_checks(tmp_path, config)
+
+    assert result == ExecutionResult(
+        build=None,
+        test=None,
+        test_skipped=False,
+        test_skip_reason=None,
+    )
+
+
+def test_run_execution_checks_build_only(tmp_path):
+    build_script = _write_script(tmp_path, "build.py", "print('build ok')\n")
+    config = ExecutionConfig(
+        build_command=_python_command(build_script),
+        test_command=None,
+        timeout_seconds=5,
+    )
+
+    result = run_execution_checks(tmp_path, config)
+
+    assert result.build is not None
+    assert result.build.name == "build"
+    assert result.build.exit_code == 0
+    assert result.build.stdout == "build ok\n"
+    assert result.test is None
+    assert result.test_skipped is False
+    assert result.test_skip_reason is None
+
+
+def test_run_execution_checks_test_only(tmp_path):
+    test_script = _write_script(tmp_path, "test.py", "print('test ok')\n")
+    config = ExecutionConfig(
+        build_command=None,
+        test_command=_python_command(test_script),
+        timeout_seconds=5,
+    )
+
+    result = run_execution_checks(tmp_path, config)
+
+    assert result.build is None
+    assert result.test is not None
+    assert result.test.name == "test"
+    assert result.test.exit_code == 0
+    assert result.test.stdout == "test ok\n"
+    assert result.test_skipped is False
+    assert result.test_skip_reason is None
+
+
+def test_run_execution_checks_build_and_test_pass(tmp_path):
+    build_script = _write_script(tmp_path, "build.py", "print('build ok')\n")
+    test_script = _write_script(tmp_path, "test.py", "print('test ok')\n")
+    config = ExecutionConfig(
+        build_command=_python_command(build_script),
+        test_command=_python_command(test_script),
+        timeout_seconds=5,
+    )
+
+    result = run_execution_checks(tmp_path, config)
+
+    assert result.build is not None
+    assert result.build.exit_code == 0
+    assert result.test is not None
+    assert result.test.exit_code == 0
+    assert result.test_skipped is False
+    assert result.test_skip_reason is None
+
+
+def test_run_execution_checks_build_fails_and_test_is_skipped(tmp_path):
+    build_script = _write_script(
+        tmp_path,
+        "build.py",
+        "import sys\n"
+        "sys.exit(2)\n",
+    )
+    test_script = _write_script(tmp_path, "test.py", "print('should not run')\n")
+    config = ExecutionConfig(
+        build_command=_python_command(build_script),
+        test_command=_python_command(test_script),
+        timeout_seconds=5,
+    )
+
+    result = run_execution_checks(tmp_path, config)
+
+    assert result.build is not None
+    assert result.build.exit_code == 2
+    assert result.build.timed_out is False
+    assert result.test is None
+    assert result.test_skipped is True
+    assert result.test_skip_reason == "Build failed"
+
+
+def test_run_execution_checks_build_times_out_and_test_is_skipped(tmp_path):
+    build_script = _write_script(
+        tmp_path,
+        "build.py",
+        "import time\n"
+        "time.sleep(5)\n",
+    )
+    test_script = _write_script(tmp_path, "test.py", "print('should not run')\n")
+    config = ExecutionConfig(
+        build_command=_python_command(build_script),
+        test_command=_python_command(test_script),
+        timeout_seconds=1,
+    )
+
+    result = run_execution_checks(tmp_path, config)
+
+    assert result.build is not None
+    assert result.build.exit_code is None
+    assert result.build.timed_out is True
+    assert result.test is None
+    assert result.test_skipped is True
+    assert result.test_skip_reason == "Build timed out"
+
+
+def test_run_execution_checks_test_fails(tmp_path):
+    build_script = _write_script(tmp_path, "build.py", "print('build ok')\n")
+    test_script = _write_script(
+        tmp_path,
+        "test.py",
+        "import sys\n"
+        "sys.exit(3)\n",
+    )
+    config = ExecutionConfig(
+        build_command=_python_command(build_script),
+        test_command=_python_command(test_script),
+        timeout_seconds=5,
+    )
+
+    result = run_execution_checks(tmp_path, config)
+
+    assert result.build is not None
+    assert result.build.exit_code == 0
+    assert result.test is not None
+    assert result.test.exit_code == 3
+    assert result.test.timed_out is False
+    assert result.test_skipped is False
+    assert result.test_skip_reason is None
+
+
+def test_run_execution_checks_test_times_out(tmp_path):
+    build_script = _write_script(tmp_path, "build.py", "print('build ok')\n")
+    test_script = _write_script(
+        tmp_path,
+        "test.py",
+        "import time\n"
+        "time.sleep(5)\n",
+    )
+    config = ExecutionConfig(
+        build_command=_python_command(build_script),
+        test_command=_python_command(test_script),
+        timeout_seconds=1,
+    )
+
+    result = run_execution_checks(tmp_path, config)
+
+    assert result.build is not None
+    assert result.build.exit_code == 0
+    assert result.test is not None
+    assert result.test.exit_code is None
+    assert result.test.timed_out is True
+    assert result.test_skipped is False
+    assert result.test_skip_reason is None
