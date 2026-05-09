@@ -1,5 +1,8 @@
+import json
 import tomllib
 from pathlib import Path
+
+import pytest
 
 from pr_risk.diff_stats import DiffStats
 from pr_risk import cli, git_diff
@@ -63,6 +66,85 @@ def test_analyze_calls_diff_risk_and_report(monkeypatch):
         ("risk", ["src/widget.cpp"], stats),
         ("report", ["src/widget.cpp"], risk_result, stats),
     ]
+
+
+def test_analyze_format_text_calls_report(monkeypatch):
+    calls = []
+    risk_result = RiskResult(score=30, level="LOW", reasons=["reason"])
+    stats = DiffStats(
+        files_changed=1,
+        lines_added=10,
+        lines_deleted=2,
+        total_churn=12,
+    )
+
+    monkeypatch.setattr(cli.git_diff, "get_changed_files", lambda repo, base: ["src/widget.cpp"])
+    monkeypatch.setattr(cli.git_diff, "get_diff_numstat", lambda repo, base: "10\t2\tsrc/widget.cpp\n")
+    monkeypatch.setattr(cli.diff_stats, "parse_numstat", lambda numstat_text: stats)
+    monkeypatch.setattr(cli.risk, "calculate_risk", lambda changed_files, diff_stats: risk_result)
+    monkeypatch.setattr(
+        cli.report,
+        "print_report",
+        lambda changed_files, risk, diff_stats: calls.append(("report", changed_files, risk, diff_stats)),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "text"])
+
+    assert exit_code == 0
+    assert calls == [("report", ["src/widget.cpp"], risk_result, stats)]
+
+
+def test_analyze_format_json_prints_valid_json(monkeypatch, capsys):
+    risk_result = RiskResult(
+        score=65,
+        level="MEDIUM",
+        reasons=["Source implementation files changed"],
+    )
+    stats = DiffStats(
+        files_changed=1,
+        lines_added=120,
+        lines_deleted=30,
+        total_churn=150,
+        binary_files_changed=0,
+    )
+
+    monkeypatch.setattr(cli.git_diff, "get_changed_files", lambda repo, base: ["src/foo.cpp"])
+    monkeypatch.setattr(cli.git_diff, "get_diff_numstat", lambda repo, base: "120\t30\tsrc/foo.cpp\n")
+    monkeypatch.setattr(cli.diff_stats, "parse_numstat", lambda numstat_text: stats)
+    monkeypatch.setattr(cli.risk, "calculate_risk", lambda changed_files, diff_stats: risk_result)
+    monkeypatch.setattr(
+        cli.report,
+        "print_report",
+        lambda changed_files, risk, diff_stats: pytest.fail("text report should not be printed"),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "json"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.err == ""
+    assert json.loads(captured.out) == {
+        "score": 65,
+        "level": "MEDIUM",
+        "changed_files": ["src/foo.cpp"],
+        "diff_stats": {
+            "files_changed": 1,
+            "lines_added": 120,
+            "lines_deleted": 30,
+            "total_churn": 150,
+            "binary_files_changed": 0,
+        },
+        "reasons": ["Source implementation files changed"],
+    }
+
+
+def test_analyze_rejects_invalid_format(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli.app(["analyze", "--format", "yaml"])
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "invalid choice: 'yaml'" in captured.err
 
 
 def test_analyze_uses_default_repo_and_base(monkeypatch):

@@ -1,6 +1,8 @@
 import argparse
 import importlib.metadata
+import json
 import sys
+from dataclasses import asdict
 
 from pr_risk import diff_stats, git_diff, report, risk
 
@@ -14,7 +16,7 @@ def app(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "analyze":
-        return _run_analyze(args.repo, args.base)
+        return _run_analyze(args.repo, args.base, args.format)
 
     parser.print_help()
     return 1
@@ -28,6 +30,7 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze_parser = subparsers.add_parser("analyze")
     analyze_parser.add_argument("--repo", default=".")
     analyze_parser.add_argument("--base", default="main")
+    analyze_parser.add_argument("--format", choices=("text", "json"), default="text")
 
     return parser
 
@@ -36,7 +39,7 @@ def _get_version() -> str:
     return importlib.metadata.version("pr-risk")
 
 
-def _run_analyze(repo: str, base: str) -> int:
+def _run_analyze(repo: str, base: str, output_format: str) -> int:
     try:
         changed_files = git_diff.get_changed_files(repo=repo, base=base)
         numstat_text = git_diff.get_diff_numstat(repo=repo, base=base)
@@ -46,8 +49,25 @@ def _run_analyze(repo: str, base: str) -> int:
 
     stats = diff_stats.parse_numstat(numstat_text)
     result = risk.calculate_risk(changed_files, stats)
-    report.print_report(changed_files, result, stats)
+    if output_format == "json":
+        print(json.dumps(_json_report(changed_files, result, stats)))
+    else:
+        report.print_report(changed_files, result, stats)
     return 0
+
+
+def _json_report(
+    changed_files: list[str],
+    result: risk.RiskResult,
+    stats: diff_stats.DiffStats,
+) -> dict[str, object]:
+    return {
+        "score": result.score,
+        "level": result.level,
+        "changed_files": changed_files,
+        "diff_stats": asdict(stats),
+        "reasons": result.reasons,
+    }
 
 
 if __name__ == "__main__":
