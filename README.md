@@ -2,19 +2,20 @@
 
 `pr-risk` is a Python CLI tool for deterministic PR risk analysis in C++/CMake repositories.
 
-It compares local changes against a base Git reference, collects changed file paths and diff statistics from Git, calculates a risk score with fixed rules, and prints a terminal report with the changed files, diff statistics, score, level, and reasons.
+It compares local changes against a base Git reference, collects changed file paths, diff statistics, and selected patch signals from Git, calculates a risk score with fixed rules, and prints a terminal report with the changed files, diff statistics, patch signals, score, level, and reasons.
 
 Current scope:
 
 - Local command-line analysis only.
 - Deterministic scoring based on changed file paths and diff churn.
 - C++ source/header and CMake file awareness.
+- Heuristic C++/CMake patch signal detection.
 - Test-file detection for common test naming patterns.
 - Text and JSON output.
 
 ## Current Risk Signals
 
-Risk scoring is deterministic and based on changed file paths plus diff statistics:
+Risk scoring is deterministic and based on changed file paths, diff statistics, and heuristic patch signals:
 
 - CMake/build files: `CMakeLists.txt` and `*.cmake` add build-system risk.
 - C++ header/API files: `.h`, `.hh`, `.hpp`, and `.hxx` add API risk.
@@ -32,6 +33,30 @@ Diff statistics are parsed from Git numstat output and include:
 - lines deleted
 - total churn
 - binary files changed
+
+## Patch Signals
+
+v0.3.0 adds heuristic C++/CMake patch signals. Patch extraction uses Git unified diff.
+
+CMake patch signal detection covers added or removed patch lines containing:
+
+- `add_library`
+- `add_executable`
+- `target_link_libraries`
+- `target_include_directories`
+- `target_compile_options`
+- `target_compile_definitions`
+- `find_package`
+
+Header/API-like patch detection covers:
+
+- class declarations
+- struct declarations
+- enum declarations
+- simple function declarations
+- trailing return type declarations
+
+Patch signals affect risk scoring conservatively at the category level. They are heuristics only: `pr-risk` is not a compiler, does not perform full C++ parsing, does not perform ABI analysis, does not build or run tests yet, and does not prove breaking changes.
 
 ## Architecture
 
@@ -94,6 +119,11 @@ Reasons:
 - Public API directory changed
 - Large diff: 145 changed lines
 - No test files changed
+Patch Signals:
+CMake:
+- Link dependencies changed
+Header/API:
+- API-like header change detected in include/widget.hpp
 ```
 
 ## JSON Output
@@ -108,7 +138,19 @@ The JSON output contains:
 - `level`: `LOW`, `MEDIUM`, or `HIGH`
 - `changed_files`: changed file paths from Git
 - `diff_stats`: diff statistics object
+- `patch_signals`: heuristic CMake and API-like patch signals
 - `reasons`: deterministic reasons contributing to the score
+
+Patch signals use this shape:
+
+```json
+{
+  "patch_signals": {
+    "cmake": ["Link dependencies changed"],
+    "api": ["API-like header change detected in include/widget.hpp"]
+  }
+}
+```
 
 Example:
 
@@ -124,6 +166,10 @@ Example:
     "total_churn": 145,
     "binary_files_changed": 0
   },
+  "patch_signals": {
+    "cmake": ["Link dependencies changed"],
+    "api": ["API-like header change detected in include/widget.hpp"]
+  },
   "reasons": [
     "Build system files changed",
     "Header/API files changed",
@@ -131,6 +177,9 @@ Example:
     "Production code changed",
     "Public API directory changed",
     "Large diff: 145 changed lines",
+    "CMake patch signals detected",
+    "Build/link/package configuration changed",
+    "API-like header changes detected",
     "No test files changed"
   ]
 }
@@ -140,11 +189,13 @@ Example:
 
 - Deterministic heuristic analysis only.
 - Local CLI only.
-- No AI/LLM analysis yet.
 - No GitHub integration yet.
 - No build/test execution yet.
-- No semantic C++/CMake patch analysis yet.
+- Not a compiler.
+- Not full C++ parsing.
+- Not ABI analysis.
+- Does not prove breaking changes.
 
 ## Roadmap
 
-- v0.3.0: semantic C++/CMake diff signals.
+- v0.4.0: sandboxed build/test execution.
