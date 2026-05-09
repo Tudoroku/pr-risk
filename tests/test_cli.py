@@ -39,20 +39,35 @@ def test_analyze_calls_diff_risk_and_report(monkeypatch):
         calls.append(("numstat", repo, base))
         return "10\t2\tsrc/widget.cpp\n"
 
+    def fake_get_diff_patch(repo, base):
+        calls.append(("patch", repo, base))
+        return "patch text"
+
     def fake_parse_numstat(numstat_text):
         calls.append(("parse_numstat", numstat_text))
         return stats
+
+    def fake_analyze_cmake_changes(patch_text):
+        calls.append(("cmake", patch_text))
+        return ["Link dependencies changed"]
+
+    def fake_analyze_api_changes(patch_text):
+        calls.append(("api", patch_text))
+        return ["API-like header change detected in include/widget.hpp"]
 
     def fake_calculate_risk(changed_files, diff_stats):
         calls.append(("risk", changed_files, diff_stats))
         return risk_result
 
-    def fake_print_report(changed_files, risk, diff_stats):
-        calls.append(("report", changed_files, risk, diff_stats))
+    def fake_print_report(changed_files, risk, diff_stats, cmake_signals, api_signals):
+        calls.append(("report", changed_files, risk, diff_stats, cmake_signals, api_signals))
 
     monkeypatch.setattr(cli.git_diff, "get_changed_files", fake_get_changed_files)
     monkeypatch.setattr(cli.git_diff, "get_diff_numstat", fake_get_diff_numstat)
+    monkeypatch.setattr(cli.git_diff, "get_diff_patch", fake_get_diff_patch)
     monkeypatch.setattr(cli.diff_stats, "parse_numstat", fake_parse_numstat)
+    monkeypatch.setattr(cli.cmake_analysis, "analyze_cmake_changes", fake_analyze_cmake_changes)
+    monkeypatch.setattr(cli.api_change, "analyze_api_changes", fake_analyze_api_changes)
     monkeypatch.setattr(cli.risk, "calculate_risk", fake_calculate_risk)
     monkeypatch.setattr(cli.report, "print_report", fake_print_report)
 
@@ -62,9 +77,19 @@ def test_analyze_calls_diff_risk_and_report(monkeypatch):
     assert calls == [
         ("changed_files", ".", "main"),
         ("numstat", ".", "main"),
+        ("patch", ".", "main"),
         ("parse_numstat", "10\t2\tsrc/widget.cpp\n"),
+        ("cmake", "patch text"),
+        ("api", "patch text"),
         ("risk", ["src/widget.cpp"], stats),
-        ("report", ["src/widget.cpp"], risk_result, stats),
+        (
+            "report",
+            ["src/widget.cpp"],
+            risk_result,
+            stats,
+            ["Link dependencies changed"],
+            ["API-like header change detected in include/widget.hpp"],
+        ),
     ]
 
 
@@ -80,18 +105,23 @@ def test_analyze_format_text_calls_report(monkeypatch):
 
     monkeypatch.setattr(cli.git_diff, "get_changed_files", lambda repo, base: ["src/widget.cpp"])
     monkeypatch.setattr(cli.git_diff, "get_diff_numstat", lambda repo, base: "10\t2\tsrc/widget.cpp\n")
+    monkeypatch.setattr(cli.git_diff, "get_diff_patch", lambda repo, base: "")
     monkeypatch.setattr(cli.diff_stats, "parse_numstat", lambda numstat_text: stats)
+    monkeypatch.setattr(cli.cmake_analysis, "analyze_cmake_changes", lambda patch_text: [])
+    monkeypatch.setattr(cli.api_change, "analyze_api_changes", lambda patch_text: [])
     monkeypatch.setattr(cli.risk, "calculate_risk", lambda changed_files, diff_stats: risk_result)
     monkeypatch.setattr(
         cli.report,
         "print_report",
-        lambda changed_files, risk, diff_stats: calls.append(("report", changed_files, risk, diff_stats)),
+        lambda changed_files, risk, diff_stats, cmake_signals, api_signals: calls.append(
+            ("report", changed_files, risk, diff_stats, cmake_signals, api_signals)
+        ),
     )
 
     exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "text"])
 
     assert exit_code == 0
-    assert calls == [("report", ["src/widget.cpp"], risk_result, stats)]
+    assert calls == [("report", ["src/widget.cpp"], risk_result, stats, [], [])]
 
 
 def test_analyze_format_json_prints_valid_json(monkeypatch, capsys):
@@ -110,12 +140,17 @@ def test_analyze_format_json_prints_valid_json(monkeypatch, capsys):
 
     monkeypatch.setattr(cli.git_diff, "get_changed_files", lambda repo, base: ["src/foo.cpp"])
     monkeypatch.setattr(cli.git_diff, "get_diff_numstat", lambda repo, base: "120\t30\tsrc/foo.cpp\n")
+    monkeypatch.setattr(cli.git_diff, "get_diff_patch", lambda repo, base: "patch text")
     monkeypatch.setattr(cli.diff_stats, "parse_numstat", lambda numstat_text: stats)
+    monkeypatch.setattr(cli.cmake_analysis, "analyze_cmake_changes", lambda patch_text: ["Link dependencies changed"])
+    monkeypatch.setattr(cli.api_change, "analyze_api_changes", lambda patch_text: [])
     monkeypatch.setattr(cli.risk, "calculate_risk", lambda changed_files, diff_stats: risk_result)
     monkeypatch.setattr(
         cli.report,
         "print_report",
-        lambda changed_files, risk, diff_stats: pytest.fail("text report should not be printed"),
+        lambda changed_files, risk, diff_stats, cmake_signals, api_signals: pytest.fail(
+            "text report should not be printed"
+        ),
     )
 
     exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "json"])
@@ -135,6 +170,10 @@ def test_analyze_format_json_prints_valid_json(monkeypatch, capsys):
             "binary_files_changed": 0,
         },
         "reasons": ["Source implementation files changed"],
+        "patch_signals": {
+            "cmake": ["Link dependencies changed"],
+            "api": [],
+        },
     }
 
 
@@ -157,13 +196,20 @@ def test_analyze_uses_default_repo_and_base(monkeypatch):
 
     monkeypatch.setattr(cli.git_diff, "get_changed_files", fake_get_changed_files)
     monkeypatch.setattr(cli.git_diff, "get_diff_numstat", lambda repo, base: "")
+    monkeypatch.setattr(cli.git_diff, "get_diff_patch", lambda repo, base: "")
     monkeypatch.setattr(cli.diff_stats, "parse_numstat", lambda numstat_text: DiffStats(0, 0, 0, 0))
+    monkeypatch.setattr(cli.cmake_analysis, "analyze_cmake_changes", lambda patch_text: [])
+    monkeypatch.setattr(cli.api_change, "analyze_api_changes", lambda patch_text: [])
     monkeypatch.setattr(
         cli.risk,
         "calculate_risk",
         lambda changed_files, diff_stats: RiskResult(0, "NONE", []),
     )
-    monkeypatch.setattr(cli.report, "print_report", lambda changed_files, risk, diff_stats: None)
+    monkeypatch.setattr(
+        cli.report,
+        "print_report",
+        lambda changed_files, risk, diff_stats, cmake_signals, api_signals: None,
+    )
 
     exit_code = cli.app(["analyze"])
 

@@ -48,3 +48,46 @@ def test_print_report_outputs_diff_stats_when_provided(capsys):
     assert "17" in output
     assert "Binary files changed" in output
     assert "1" in output
+
+
+def test_print_report_outputs_cmake_patch_signals(capsys):
+    risk = RiskResult(score=25, level="LOW", reasons=["Build system files changed"])
+
+    print_report(
+        ["CMakeLists.txt"],
+        risk,
+        cmake_signals=["Link dependencies changed", "Package dependency changed"],
+    )
+
+    output = capsys.readouterr().out
+    assert "Patch Signals:" in output
+    assert "CMake:" in output
+    assert "- Link dependencies changed" in output
+    assert "- Package dependency changed" in output
+
+
+def test_print_report_outputs_api_patch_signals(capsys):
+    risk = RiskResult(score=25, level="LOW", reasons=["Header/API files changed"])
+
+    print_report(
+        ["include/widget.hpp"],
+        risk,
+        api_signals=["API-like header change detected in include/widget.hpp"],
+    )
+
+    output = capsys.readouterr().out
+    assert "Patch Signals:" in output
+    assert "Header/API:" in output
+    assert "- API-like header change detected in include/widget.hpp" in output
+
+
+def test_print_report_outputs_no_patch_signals_cleanly(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report([], risk, cmake_signals=[], api_signals=[])
+
+    output = capsys.readouterr().out
+    assert "Patch Signals:" in output
+    assert "No patch signals detected" in output
+    assert "CMake:" not in output
+    assert "Header/API:" not in output

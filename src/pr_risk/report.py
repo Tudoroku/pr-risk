@@ -6,7 +6,13 @@ from pr_risk.diff_stats import DiffStats
 from pr_risk.risk import RiskResult
 
 
-def print_report(changed_files: list[str], risk: RiskResult, diff_stats: DiffStats | None = None) -> None:
+def print_report(
+    changed_files: list[str],
+    risk: RiskResult,
+    diff_stats: DiffStats | None = None,
+    cmake_signals: list[str] | None = None,
+    api_signals: list[str] | None = None,
+) -> None:
     console = Console()
 
     console.print("PR Risk Report", style="bold")
@@ -18,6 +24,24 @@ def print_report(changed_files: list[str], risk: RiskResult, diff_stats: DiffSta
     console.print("Reasons:")
     for reason in risk.reasons:
         console.print(f"- {reason}")
+    _print_patch_signals(console, cmake_signals or [], api_signals or [])
+
+
+def _print_patch_signals(console: Console, cmake_signals: list[str], api_signals: list[str]) -> None:
+    console.print("Patch Signals:")
+    if not cmake_signals and not api_signals:
+        console.print("No patch signals detected")
+        return
+
+    if cmake_signals:
+        console.print("CMake:")
+        for signal in cmake_signals:
+            console.print(f"- {signal}")
+
+    if api_signals:
+        console.print("Header/API:")
+        for signal in api_signals:
+            console.print(f"- {signal}")
 
 
 def _changed_files_table(changed_files: list[str]) -> Table:
