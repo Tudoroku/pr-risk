@@ -188,6 +188,9 @@ def test_analyze_format_json_prints_valid_json(monkeypatch, capsys):
             "cmake": ["Link dependencies changed"],
             "api": [],
         },
+        "execution": {
+            "run": False,
+        },
     }
 
 
@@ -307,6 +310,78 @@ def test_analyze_run_checks_with_no_config_or_commands_does_not_crash(monkeypatc
     assert exit_code == 0
 
 
+def test_analyze_format_json_without_run_checks_includes_execution_not_run(monkeypatch, capsys):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "json"])
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert exit_code == 0
+    assert captured.err == ""
+    assert output["execution"] == {"run": False}
+
+
+def test_analyze_run_checks_json_no_commands_configured(monkeypatch, capsys):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+    monkeypatch.setattr(
+        cli.config,
+        "load_config",
+        lambda repo_path: cli.config.ExecutionConfig(
+            build_command=None,
+            test_command=None,
+            timeout_seconds=10,
+        ),
+    )
+    monkeypatch.setattr(
+        cli.runner,
+        "run_execution_checks",
+        lambda repo_path, execution_config: cli.runner.ExecutionResult(build=None, test=None),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "json", "--run-checks"])
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert exit_code == 0
+    assert output["execution"] == {
+        "run": True,
+        "build": {
+            "configured": False,
+        },
+        "test": {
+            "configured": False,
+            "skipped": False,
+            "skip_reason": None,
+        },
+    }
+
+
+def test_analyze_run_checks_json_build_passes(monkeypatch, capsys):
+    _stub_json_execution(
+        monkeypatch,
+        build_command="cmake --build build",
+        test_command=None,
+        execution_result=cli.runner.ExecutionResult(
+            build=_command_result("build", "cmake --build build", 0, False, 12.4),
+            test=None,
+        ),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "json", "--run-checks"])
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert exit_code == 0
+    assert output["execution"]["build"] == {
+        "configured": True,
+        "command": "cmake --build build",
+        "exit_code": 0,
+        "timed_out": False,
+        "duration_seconds": 12.4,
+    }
+
+
 def test_analyze_run_checks_failed_build_does_not_change_json_risk(monkeypatch, capsys):
     risk_result = RiskResult(42, "MEDIUM", ["Source implementation files changed"])
     _stub_analyze_pipeline(monkeypatch, risk_result)
@@ -346,7 +421,145 @@ def test_analyze_run_checks_failed_build_does_not_change_json_risk(monkeypatch, 
     assert captured.err == ""
     assert output["score"] == 42
     assert output["level"] == "MEDIUM"
-    assert "execution" not in output
+    assert output["execution"]["build"]["exit_code"] == 1
+    assert output["execution"]["test"] == {
+        "configured": True,
+        "command": "test command",
+        "exit_code": None,
+        "timed_out": False,
+        "duration_seconds": None,
+        "skipped": True,
+        "skip_reason": "Build failed",
+    }
+
+
+def test_analyze_run_checks_json_build_timeout_skips_test(monkeypatch, capsys):
+    _stub_json_execution(
+        monkeypatch,
+        build_command="build command",
+        test_command="test command",
+        execution_result=cli.runner.ExecutionResult(
+            build=_command_result("build", "build command", None, True, 10.0),
+            test=None,
+            test_skipped=True,
+            test_skip_reason="Build timed out",
+        ),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "json", "--run-checks"])
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert exit_code == 0
+    assert output["execution"]["build"] == {
+        "configured": True,
+        "command": "build command",
+        "exit_code": None,
+        "timed_out": True,
+        "duration_seconds": 10.0,
+    }
+    assert output["execution"]["test"] == {
+        "configured": True,
+        "command": "test command",
+        "exit_code": None,
+        "timed_out": False,
+        "duration_seconds": None,
+        "skipped": True,
+        "skip_reason": "Build timed out",
+    }
+
+
+def test_analyze_run_checks_json_test_fails(monkeypatch, capsys):
+    _stub_json_execution(
+        monkeypatch,
+        build_command="build command",
+        test_command="test command",
+        execution_result=cli.runner.ExecutionResult(
+            build=_command_result("build", "build command", 0, False, 1.2),
+            test=_command_result("test", "test command", 8, False, 5.1),
+        ),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "json", "--run-checks"])
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert exit_code == 0
+    assert output["execution"]["test"] == {
+        "configured": True,
+        "command": "test command",
+        "exit_code": 8,
+        "timed_out": False,
+        "duration_seconds": 5.1,
+        "skipped": False,
+        "skip_reason": None,
+    }
+
+
+def test_analyze_run_checks_json_test_times_out(monkeypatch, capsys):
+    _stub_json_execution(
+        monkeypatch,
+        build_command="build command",
+        test_command="test command",
+        execution_result=cli.runner.ExecutionResult(
+            build=_command_result("build", "build command", 0, False, 1.2),
+            test=_command_result("test", "test command", None, True, 10.0),
+        ),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "json", "--run-checks"])
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert exit_code == 0
+    assert output["execution"]["test"] == {
+        "configured": True,
+        "command": "test command",
+        "exit_code": None,
+        "timed_out": True,
+        "duration_seconds": 10.0,
+        "skipped": False,
+        "skip_reason": None,
+    }
+
+
+def test_analyze_run_checks_json_omits_stdout_and_stderr(monkeypatch, capsys):
+    _stub_json_execution(
+        monkeypatch,
+        build_command="build command",
+        test_command="test command",
+        execution_result=cli.runner.ExecutionResult(
+            build=cli.runner.CommandResult(
+                name="build",
+                command="build command",
+                exit_code=0,
+                stdout="build stdout",
+                stderr="build stderr",
+                timed_out=False,
+                duration_seconds=1.2,
+            ),
+            test=cli.runner.CommandResult(
+                name="test",
+                command="test command",
+                exit_code=0,
+                stdout="test stdout",
+                stderr="test stderr",
+                timed_out=False,
+                duration_seconds=5.1,
+            ),
+        ),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "json", "--run-checks"])
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert exit_code == 0
+    serialized = json.dumps(output)
+    assert "stdout" not in serialized
+    assert "stderr" not in serialized
+    assert "stdout_preview" not in serialized
+    assert "stderr_preview" not in serialized
 
 
 def test_analyze_run_checks_json_does_not_pass_execution_to_text_report(monkeypatch, capsys):
@@ -389,7 +602,37 @@ def test_analyze_run_checks_json_does_not_pass_execution_to_text_report(monkeypa
     output = json.loads(captured.out)
     assert exit_code == 0
     assert captured.err == ""
-    assert "execution" not in output
+    assert output["execution"]["build"]["exit_code"] == 0
+
+
+def _stub_json_execution(monkeypatch, build_command, test_command, execution_result):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+    monkeypatch.setattr(
+        cli.config,
+        "load_config",
+        lambda repo_path: cli.config.ExecutionConfig(
+            build_command=build_command,
+            test_command=test_command,
+            timeout_seconds=10,
+        ),
+    )
+    monkeypatch.setattr(
+        cli.runner,
+        "run_execution_checks",
+        lambda repo_path, execution_config: execution_result,
+    )
+
+
+def _command_result(name, command, exit_code, timed_out, duration_seconds):
+    return cli.runner.CommandResult(
+        name=name,
+        command=command,
+        exit_code=exit_code,
+        stdout=f"{name} stdout",
+        stderr=f"{name} stderr",
+        timed_out=timed_out,
+        duration_seconds=duration_seconds,
+    )
 
 
 def _stub_analyze_pipeline(monkeypatch, risk_result):

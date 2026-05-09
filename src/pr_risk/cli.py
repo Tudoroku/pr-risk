@@ -54,6 +54,7 @@ def _run_analyze(repo: str, base: str, output_format: str, run_checks: bool) -> 
     cmake_signals = cmake_analysis.analyze_cmake_changes(patch_text)
     api_signals = api_change.analyze_api_changes(patch_text)
     result = risk.calculate_risk(changed_files, stats, cmake_signals, api_signals)
+    execution_config = None
     execution_result = None
 
     if run_checks:
@@ -61,7 +62,20 @@ def _run_analyze(repo: str, base: str, output_format: str, run_checks: bool) -> 
         execution_result = runner.run_execution_checks(Path(repo), execution_config)
 
     if output_format == "json":
-        print(json.dumps(_json_report(changed_files, result, stats, cmake_signals, api_signals)))
+        print(
+            json.dumps(
+                _json_report(
+                    changed_files,
+                    result,
+                    stats,
+                    cmake_signals,
+                    api_signals,
+                    run_checks,
+                    execution_config,
+                    execution_result,
+                )
+            )
+        )
     elif run_checks:
         report.print_report(changed_files, result, stats, cmake_signals, api_signals, execution_result)
     else:
@@ -75,6 +89,9 @@ def _json_report(
     stats: diff_stats.DiffStats,
     cmake_signals: list[str],
     api_signals: list[str],
+    run_checks: bool,
+    execution_config: config.ExecutionConfig | None,
+    execution_result: runner.ExecutionResult | None,
 ) -> dict[str, object]:
     return {
         "score": result.score,
@@ -86,6 +103,85 @@ def _json_report(
             "cmake": cmake_signals,
             "api": api_signals,
         },
+        "execution": _json_execution(run_checks, execution_config, execution_result),
+    }
+
+
+def _json_execution(
+    run_checks: bool,
+    execution_config: config.ExecutionConfig | None,
+    execution_result: runner.ExecutionResult | None,
+) -> dict[str, object]:
+    if not run_checks:
+        return {"run": False}
+
+    if execution_config is None or execution_result is None:
+        return {"run": True}
+
+    return {
+        "run": True,
+        "build": _json_build_execution(execution_config, execution_result),
+        "test": _json_test_execution(execution_config, execution_result),
+    }
+
+
+def _json_build_execution(
+    execution_config: config.ExecutionConfig,
+    execution_result: runner.ExecutionResult,
+) -> dict[str, object]:
+    if execution_config.build_command is None:
+        return {"configured": False}
+
+    return _json_command_execution(execution_result.build, execution_config.build_command)
+
+
+def _json_test_execution(
+    execution_config: config.ExecutionConfig,
+    execution_result: runner.ExecutionResult,
+) -> dict[str, object]:
+    if execution_config.test_command is None:
+        return {
+            "configured": False,
+            "skipped": False,
+            "skip_reason": None,
+        }
+
+    if execution_result.test_skipped:
+        return {
+            "configured": True,
+            "command": execution_config.test_command,
+            "exit_code": None,
+            "timed_out": False,
+            "duration_seconds": None,
+            "skipped": True,
+            "skip_reason": execution_result.test_skip_reason,
+        }
+
+    result = _json_command_execution(execution_result.test, execution_config.test_command)
+    result["skipped"] = False
+    result["skip_reason"] = None
+    return result
+
+
+def _json_command_execution(
+    command_result: runner.CommandResult | None,
+    command: str,
+) -> dict[str, object]:
+    if command_result is None:
+        return {
+            "configured": True,
+            "command": command,
+            "exit_code": None,
+            "timed_out": False,
+            "duration_seconds": None,
+        }
+
+    return {
+        "configured": True,
+        "command": command_result.command,
+        "exit_code": command_result.exit_code,
+        "timed_out": command_result.timed_out,
+        "duration_seconds": command_result.duration_seconds,
     }
 
 
