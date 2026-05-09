@@ -40,8 +40,8 @@ def test_analyze_calls_diff_risk_and_report(monkeypatch):
         calls.append(("parse_numstat", numstat_text))
         return stats
 
-    def fake_calculate_risk(changed_files):
-        calls.append(("risk", changed_files))
+    def fake_calculate_risk(changed_files, diff_stats):
+        calls.append(("risk", changed_files, diff_stats))
         return risk_result
 
     def fake_print_report(changed_files, risk, diff_stats):
@@ -60,7 +60,7 @@ def test_analyze_calls_diff_risk_and_report(monkeypatch):
         ("changed_files", ".", "main"),
         ("numstat", ".", "main"),
         ("parse_numstat", "10\t2\tsrc/widget.cpp\n"),
-        ("risk", ["src/widget.cpp"]),
+        ("risk", ["src/widget.cpp"], stats),
         ("report", ["src/widget.cpp"], risk_result, stats),
     ]
 
@@ -76,7 +76,11 @@ def test_analyze_uses_default_repo_and_base(monkeypatch):
     monkeypatch.setattr(cli.git_diff, "get_changed_files", fake_get_changed_files)
     monkeypatch.setattr(cli.git_diff, "get_diff_numstat", lambda repo, base: "")
     monkeypatch.setattr(cli.diff_stats, "parse_numstat", lambda numstat_text: DiffStats(0, 0, 0, 0))
-    monkeypatch.setattr(cli.risk, "calculate_risk", lambda changed_files: RiskResult(0, "NONE", []))
+    monkeypatch.setattr(
+        cli.risk,
+        "calculate_risk",
+        lambda changed_files, diff_stats: RiskResult(0, "NONE", []),
+    )
     monkeypatch.setattr(cli.report, "print_report", lambda changed_files, risk, diff_stats: None)
 
     exit_code = cli.app(["analyze"])

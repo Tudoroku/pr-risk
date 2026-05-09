@@ -1,3 +1,4 @@
+from pr_risk.diff_stats import DiffStats
 from pr_risk.risk import RiskResult, calculate_risk
 
 
@@ -165,6 +166,17 @@ def test_docs_only_changes_stay_low_without_missing_test_reason():
     assert "No test files changed" not in result.reasons
 
 
+def test_docs_only_changes_stay_low_with_churn_stats():
+    result = calculate_risk(
+        ["docs/guide.md", "README.md"],
+        DiffStats(files_changed=2, lines_added=900, lines_deleted=100, total_churn=1000),
+    )
+
+    assert result.score == 0
+    assert result.level == "LOW"
+    assert result.reasons == ["Only documentation files changed"]
+
+
 def test_tests_directory_counts_as_test_file_change():
     result = calculate_risk(["tests/widget.cpp"])
 
@@ -240,6 +252,130 @@ def test_score_is_capped_at_100_and_high_risk():
         "Public API directory changed",
         "Build configuration directory changed",
         "No test files changed",
+    ]
+
+
+def test_total_churn_thresholds_are_tiered():
+    cases = [
+        (99, 20, ["Source implementation files changed", "Production code changed"]),
+        (
+            100,
+            30,
+            [
+                "Source implementation files changed",
+                "Production code changed",
+                "Large diff: 100 changed lines",
+            ],
+        ),
+        (
+            300,
+            40,
+            [
+                "Source implementation files changed",
+                "Production code changed",
+                "Large diff: 300 changed lines",
+            ],
+        ),
+        (
+            700,
+            50,
+            [
+                "Source implementation files changed",
+                "Production code changed",
+                "Large diff: 700 changed lines",
+            ],
+        ),
+    ]
+
+    for total_churn, expected_score, expected_reasons in cases:
+        result = calculate_risk(
+            ["src/widget.cpp", "tests/test_widget.cpp"],
+            DiffStats(files_changed=2, lines_added=total_churn, lines_deleted=0, total_churn=total_churn),
+        )
+
+        assert result.score == expected_score
+        assert result.reasons == expected_reasons
+
+
+def test_total_churn_thresholds_are_not_cumulative():
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        DiffStats(files_changed=2, lines_added=800, lines_deleted=0, total_churn=800),
+    )
+
+    assert result.score == 50
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+        "Large diff: 800 changed lines",
+    ]
+
+
+def test_files_changed_thresholds_are_tiered():
+    cases = [
+        (9, 0, ["Only low-risk files changed"]),
+        (
+            10,
+            15,
+            [
+                "Many files changed: 10 files",
+            ],
+        ),
+        (
+            25,
+            25,
+            [
+                "Many files changed: 25 files",
+            ],
+        ),
+    ]
+
+    for files_changed, expected_score, expected_reasons in cases:
+        result = calculate_risk(
+            ["tests/test_only.py"],
+            DiffStats(files_changed=files_changed, lines_added=1, lines_deleted=0, total_churn=1),
+        )
+
+        assert result.score == expected_score
+        assert result.reasons == expected_reasons
+
+
+def test_files_changed_thresholds_are_not_cumulative():
+    result = calculate_risk(
+        ["tests/test_only.py"],
+        DiffStats(files_changed=30, lines_added=1, lines_deleted=0, total_churn=1),
+    )
+
+    assert result.score == 25
+    assert result.reasons == ["Many files changed: 30 files"]
+
+
+def test_score_cap_still_applies_with_churn_scoring():
+    result = calculate_risk(
+        [
+            "cmake/toolchain.cmake",
+            "include/widget.h",
+            "src/a.cpp",
+            "src/b.cpp",
+            "src/c.cpp",
+            "src/d.cpp",
+            "src/e.cpp",
+        ],
+        DiffStats(files_changed=30, lines_added=800, lines_deleted=0, total_churn=800),
+    )
+
+    assert result.score == 100
+    assert result.level == "HIGH"
+    assert result.reasons == [
+        "Build system files changed",
+        "Header/API files changed",
+        "Source implementation files changed",
+        "Production code changed",
+        "Public API directory changed",
+        "Build configuration directory changed",
+        "No test files changed",
+        "Large diff: 800 changed lines",
+        "Many files changed: 30 files",
     ]
 
 

@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from pr_risk.diff_stats import DiffStats
+
 
 TEST_FILE_SUFFIXES = (
     "_test.c",
@@ -18,6 +20,11 @@ PER_SOURCE_FILE_SCORE = 5
 MAX_SOURCE_FILE_SCORE = 25
 DIRECTORY_RISK_SCORE = 10
 MISSING_TESTS_SCORE = 25
+LARGE_DIFF_SCORE_100 = 10
+LARGE_DIFF_SCORE_300 = 20
+LARGE_DIFF_SCORE_700 = 30
+MANY_FILES_SCORE_10 = 15
+MANY_FILES_SCORE_25 = 25
 MAX_RISK_SCORE = 100
 LOW_RISK_MAX_SCORE = 39
 MEDIUM_RISK_MAX_SCORE = 69
@@ -30,7 +37,10 @@ class RiskResult:
     reasons: list[str]
 
 
-def calculate_risk(changed_files: list[str]) -> RiskResult:
+def calculate_risk(
+    changed_files: list[str],
+    diff_stats: DiffStats | None = None,
+) -> RiskResult:
     reasons: list[str] = []
     score = 0
 
@@ -77,6 +87,17 @@ def calculate_risk(changed_files: list[str]) -> RiskResult:
     if not any(_is_test_file(path) for path in changed_files):
         score += MISSING_TESTS_SCORE
         reasons.append("No test files changed")
+
+    if diff_stats is not None:
+        churn_score = _total_churn_score(diff_stats.total_churn)
+        if churn_score:
+            score += churn_score
+            reasons.append(f"Large diff: {diff_stats.total_churn} changed lines")
+
+        files_score = _files_changed_score(diff_stats.files_changed)
+        if files_score:
+            score += files_score
+            reasons.append(f"Many files changed: {diff_stats.files_changed} files")
 
     if not reasons:
         reasons.append("Only low-risk files changed")
@@ -134,6 +155,24 @@ def _extension(path: str) -> str:
     if dot_index == -1:
         return ""
     return filename[dot_index:]
+
+
+def _total_churn_score(total_churn: int) -> int:
+    if total_churn >= 700:
+        return LARGE_DIFF_SCORE_700
+    if total_churn >= 300:
+        return LARGE_DIFF_SCORE_300
+    if total_churn >= 100:
+        return LARGE_DIFF_SCORE_100
+    return 0
+
+
+def _files_changed_score(files_changed: int) -> int:
+    if files_changed >= 25:
+        return MANY_FILES_SCORE_25
+    if files_changed >= 10:
+        return MANY_FILES_SCORE_10
+    return 0
 
 
 def _risk_level(score: int) -> str:
