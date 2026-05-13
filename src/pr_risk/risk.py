@@ -28,6 +28,10 @@ MANY_FILES_SCORE_25 = 25
 CMAKE_PATCH_SIGNAL_SCORE = 15
 SENSITIVE_CMAKE_PATCH_SIGNAL_SCORE = 20
 API_PATCH_SIGNAL_SCORE = 15
+BUILD_FAILURE_SCORE = 30
+TEST_FAILURE_SCORE = 25
+BUILD_TIMEOUT_SCORE = 20
+TEST_TIMEOUT_SCORE = 20
 MAX_RISK_SCORE = 100
 LOW_RISK_MAX_SCORE = 39
 MEDIUM_RISK_MAX_SCORE = 69
@@ -51,6 +55,7 @@ def calculate_risk(
     diff_stats: DiffStats | None = None,
     cmake_signals: list[str] | None = None,
     api_signals: list[str] | None = None,
+    execution_result: object | None = None,
 ) -> RiskResult:
     reasons: list[str] = []
     score = 0
@@ -121,6 +126,10 @@ def calculate_risk(
         if files_score:
             score += files_score
             reasons.append(f"Many files changed: {diff_stats.files_changed} files")
+
+    execution_score, execution_reasons = _execution_score(execution_result)
+    score += execution_score
+    reasons.extend(execution_reasons)
 
     if not reasons:
         reasons.append("Only low-risk files changed")
@@ -196,6 +205,43 @@ def _files_changed_score(files_changed: int) -> int:
     if files_changed >= 10:
         return MANY_FILES_SCORE_10
     return 0
+
+
+def _execution_score(execution_result: object | None) -> tuple[int, list[str]]:
+    if execution_result is None:
+        return 0, []
+
+    score = 0
+    reasons: list[str] = []
+    build_result = getattr(execution_result, "build", None)
+    test_result = getattr(execution_result, "test", None)
+
+    if build_result is not None:
+        if _command_timed_out(build_result):
+            score += BUILD_TIMEOUT_SCORE
+            reasons.append("Build command timed out")
+        elif _command_failed(build_result):
+            score += BUILD_FAILURE_SCORE
+            reasons.append("Build failed")
+
+    if test_result is not None:
+        if _command_timed_out(test_result):
+            score += TEST_TIMEOUT_SCORE
+            reasons.append("Test command timed out")
+        elif _command_failed(test_result):
+            score += TEST_FAILURE_SCORE
+            reasons.append("Tests failed")
+
+    return score, reasons
+
+
+def _command_timed_out(command_result: object) -> bool:
+    return getattr(command_result, "timed_out", False) is True
+
+
+def _command_failed(command_result: object) -> bool:
+    exit_code = getattr(command_result, "exit_code", None)
+    return exit_code is not None and exit_code != 0
 
 
 def _risk_level(score: int) -> str:

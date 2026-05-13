@@ -2,6 +2,18 @@ from pr_risk.diff_stats import DiffStats
 from pr_risk.risk import RiskResult, calculate_risk
 
 
+class ExecutionResultStub:
+    def __init__(self, build=None, test=None):
+        self.build = build
+        self.test = test
+
+
+class CommandResultStub:
+    def __init__(self, exit_code=None, timed_out=False):
+        self.exit_code = exit_code
+        self.timed_out = timed_out
+
+
 def test_no_changed_files_has_no_tests_risk():
     result = calculate_risk([])
 
@@ -536,6 +548,195 @@ def test_score_cap_still_applies_with_churn_scoring():
         "No test files changed",
         "Large diff: 800 changed lines",
         "Many files changed: 30 files",
+    ]
+
+
+def test_build_failure_increases_score():
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        execution_result=ExecutionResultStub(
+            build=CommandResultStub(exit_code=1),
+        ),
+    )
+
+    assert result.score == 50
+    assert result.level == "MEDIUM"
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+        "Build failed",
+    ]
+
+
+def test_test_failure_increases_score():
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        execution_result=ExecutionResultStub(
+            test=CommandResultStub(exit_code=1),
+        ),
+    )
+
+    assert result.score == 45
+    assert result.level == "MEDIUM"
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+        "Tests failed",
+    ]
+
+
+def test_build_timeout_increases_score():
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        execution_result=ExecutionResultStub(
+            build=CommandResultStub(timed_out=True),
+        ),
+    )
+
+    assert result.score == 40
+    assert result.level == "MEDIUM"
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+        "Build command timed out",
+    ]
+
+
+def test_test_timeout_increases_score():
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        execution_result=ExecutionResultStub(
+            test=CommandResultStub(timed_out=True),
+        ),
+    )
+
+    assert result.score == 40
+    assert result.level == "MEDIUM"
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+        "Test command timed out",
+    ]
+
+
+def test_timeout_is_not_double_counted_as_failure():
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        execution_result=ExecutionResultStub(
+            build=CommandResultStub(exit_code=1, timed_out=True),
+            test=CommandResultStub(exit_code=1, timed_out=True),
+        ),
+    )
+
+    assert result.score == 60
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+        "Build command timed out",
+        "Test command timed out",
+    ]
+
+
+def test_build_passes_and_test_times_out_adds_timeout_only():
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        execution_result=ExecutionResultStub(
+            build=CommandResultStub(exit_code=0),
+            test=CommandResultStub(timed_out=True),
+        ),
+    )
+
+    assert result.score == 40
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+        "Test command timed out",
+    ]
+
+
+def test_build_times_out_and_test_skipped_adds_build_timeout_only():
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        execution_result=ExecutionResultStub(
+            build=CommandResultStub(timed_out=True),
+            test=None,
+        ),
+    )
+
+    assert result.score == 40
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+        "Build command timed out",
+    ]
+
+
+def test_test_skipped_because_build_failed_does_not_add_test_penalty():
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        execution_result=ExecutionResultStub(
+            build=CommandResultStub(exit_code=1),
+            test=None,
+        ),
+    )
+
+    assert result.score == 50
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+        "Build failed",
+    ]
+
+
+def test_execution_result_none_leaves_score_unchanged():
+    baseline = calculate_risk(["src/widget.cpp", "tests/test_widget.cpp"])
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        execution_result=None,
+    )
+
+    assert result == baseline
+
+
+def test_no_commands_configured_leaves_score_unchanged():
+    baseline = calculate_risk(["src/widget.cpp", "tests/test_widget.cpp"])
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        execution_result=ExecutionResultStub(build=None, test=None),
+    )
+
+    assert result == baseline
+
+
+def test_score_cap_still_applies_with_execution_scoring():
+    result = calculate_risk(
+        [
+            "cmake/toolchain.cmake",
+            "include/widget.h",
+            "src/a.cpp",
+            "src/b.cpp",
+            "src/c.cpp",
+            "src/d.cpp",
+            "src/e.cpp",
+        ],
+        execution_result=ExecutionResultStub(
+            build=CommandResultStub(exit_code=1),
+            test=CommandResultStub(exit_code=1),
+        ),
+    )
+
+    assert result.score == 100
+    assert result.level == "HIGH"
+    assert result.reasons == [
+        "Build system files changed",
+        "Header/API files changed",
+        "Source implementation files changed",
+        "Production code changed",
+        "Public API directory changed",
+        "Build configuration directory changed",
+        "No test files changed",
+        "Build failed",
+        "Tests failed",
     ]
 
 
