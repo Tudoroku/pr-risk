@@ -18,6 +18,12 @@ Current release line:
 - `v0.2.0` = diff-size/churn-aware analysis + JSON output
 - `v0.3.0` = heuristic C++/CMake patch signals
 - `v0.4.0` = configured build/test execution evidence
+- `v0.5.0` = execution-aware risk scoring
+
+Planned:
+
+- `v0.6.0` = Docker sandbox execution
+- `v0.7.0` = GitHub/GitLab PR integration
 
 ## Architecture
 
@@ -30,6 +36,7 @@ Keep code simple and modular:
 - `cmake_analysis.py`: heuristic CMake patch signal detection only
 - `api_change.py`: heuristic API-like header patch signal detection only
 - `risk.py`: deterministic risk scoring only
+- `recommendation.py`: merge/review recommendation policy only
 - `runner.py`: local command execution and execution-check orchestration only
 - `config.py`: `.pr-risk.toml` config loading only
 - `report.py`: terminal/text report output only
@@ -56,6 +63,12 @@ Important boundary:
 - Add or update tests for every behavior change.
 - Do not rewrite unrelated files.
 - Do not change risk scoring unless explicitly asked.
+- Execution results affect risk score starting in `v0.5.0`.
+- Do not change execution scoring unless explicitly asked.
+- Do not change recommendation policy unless explicitly asked.
+- Do not print or serialize stdout/stderr.
+- Do not move JSON rendering into `report.py`.
+- `report.py` stays text-only.
 
 ## Execution Safety
 
@@ -69,7 +82,7 @@ Important:
 - Docker/isolation is future work.
 - Do not call current execution support “sandboxed execution.”
 
-In `v0.4.0`, execution results are evidence only. Build/test failures are reported but do not affect risk score yet.
+In `v0.5.0`, execution results affect risk score. Build/test failures are reported as execution evidence and contribute to execution-aware risk scoring.
 
 ## Commands
 
