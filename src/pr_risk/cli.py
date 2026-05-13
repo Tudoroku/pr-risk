@@ -53,13 +53,21 @@ def _run_analyze(repo: str, base: str, output_format: str, run_checks: bool) -> 
     stats = diff_stats.parse_numstat(numstat_text)
     cmake_signals = cmake_analysis.analyze_cmake_changes(patch_text)
     api_signals = api_change.analyze_api_changes(patch_text)
-    result = risk.calculate_risk(changed_files, stats, cmake_signals, api_signals)
     execution_config = None
     execution_result = None
 
     if run_checks:
         execution_config = config.load_config(Path(repo))
         execution_result = runner.run_execution_checks(Path(repo), execution_config)
+        result = risk.calculate_risk(
+            changed_files,
+            stats,
+            cmake_signals,
+            api_signals,
+            execution_result=execution_result,
+        )
+    else:
+        result = risk.calculate_risk(changed_files, stats, cmake_signals, api_signals)
 
     if output_format == "json":
         print(
