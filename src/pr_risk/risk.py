@@ -61,7 +61,13 @@ def calculate_risk(
     score = 0
 
     if not changed_files:
-        return RiskResult(score=0, level="LOW", reasons=["No changed files"])
+        execution_score, execution_reasons = _execution_score(execution_result)
+        score += execution_score
+        reasons.append("No changed files")
+        reasons.extend(execution_reasons)
+
+        score = min(score, MAX_RISK_SCORE)
+        return RiskResult(score=score, level=_risk_level(score), reasons=reasons)
 
     if all(_is_documentation_file(path) for path in changed_files):
         return RiskResult(

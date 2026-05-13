@@ -25,6 +25,63 @@ def test_no_changed_files_has_no_tests_risk():
     assert "No test files changed" not in result.reasons
 
 
+def test_empty_diff_with_no_commands_configured_keeps_no_changed_files_reason():
+    result = calculate_risk(
+        [],
+        execution_result=ExecutionResultStub(build=None, test=None),
+    )
+
+    assert result == RiskResult(
+        score=0,
+        level="LOW",
+        reasons=["No changed files"],
+    )
+
+
+def test_empty_diff_with_build_failure_adds_execution_risk():
+    result = calculate_risk(
+        [],
+        execution_result=ExecutionResultStub(build=CommandResultStub(exit_code=1)),
+    )
+
+    assert result.score == 30
+    assert result.level == "LOW"
+    assert result.reasons == ["No changed files", "Build failed"]
+
+
+def test_empty_diff_with_test_failure_adds_execution_risk():
+    result = calculate_risk(
+        [],
+        execution_result=ExecutionResultStub(test=CommandResultStub(exit_code=1)),
+    )
+
+    assert result.score == 25
+    assert result.level == "LOW"
+    assert result.reasons == ["No changed files", "Tests failed"]
+
+
+def test_empty_diff_with_build_timeout_adds_execution_risk():
+    result = calculate_risk(
+        [],
+        execution_result=ExecutionResultStub(build=CommandResultStub(timed_out=True)),
+    )
+
+    assert result.score == 20
+    assert result.level == "LOW"
+    assert result.reasons == ["No changed files", "Build command timed out"]
+
+
+def test_empty_diff_with_test_timeout_adds_execution_risk():
+    result = calculate_risk(
+        [],
+        execution_result=ExecutionResultStub(test=CommandResultStub(timed_out=True)),
+    )
+
+    assert result.score == 20
+    assert result.level == "LOW"
+    assert result.reasons == ["No changed files", "Test command timed out"]
+
+
 def test_cmake_header_and_source_files_add_expected_score():
     result = calculate_risk(
         [
