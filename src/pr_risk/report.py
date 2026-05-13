@@ -3,8 +3,18 @@ from rich.console import Console
 from rich.table import Table
 
 from pr_risk.diff_stats import DiffStats
+from pr_risk.recommendation import recommend_review
 from pr_risk.risk import RiskResult
 from pr_risk.runner import CommandResult, ExecutionResult
+
+_RECOMMENDATION_MESSAGES = {
+    "do_not_merge_until_build_passes": "Do not merge until build passes.",
+    "do_not_merge_until_tests_pass": "Do not merge until tests pass.",
+    "investigate_execution_timeout": "Investigate execution timeout.",
+    "require_senior_review": "Require senior review.",
+    "careful_review": "Careful review.",
+    "normal_review": "Normal review.",
+}
 
 
 def print_report(
@@ -23,12 +33,24 @@ def print_report(
         console.print(_diff_stats_table(diff_stats))
     console.print(f"Risk score: {risk.score}/100")
     console.print(f"Risk level: {risk.level}")
+    _print_recommendation(console, risk, execution_result)
     console.print("Reasons:")
     for reason in risk.reasons:
         console.print(f"- {reason}")
     _print_patch_signals(console, cmake_signals or [], api_signals or [])
     if execution_result is not None:
         _print_execution_checks(console, execution_result)
+
+
+def _print_recommendation(
+    console: Console,
+    risk: RiskResult,
+    execution_result: ExecutionResult | None,
+) -> None:
+    recommendation = recommend_review(risk, execution_result)
+    message = _RECOMMENDATION_MESSAGES[recommendation]
+    console.print("Recommendation:")
+    console.print(f"- {message}")
 
 
 def _print_patch_signals(console: Console, cmake_signals: list[str], api_signals: list[str]) -> None:

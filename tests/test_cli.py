@@ -175,6 +175,7 @@ def test_analyze_format_json_prints_valid_json(monkeypatch, capsys):
     assert json.loads(captured.out) == {
         "score": 65,
         "level": "MEDIUM",
+        "recommendation": "careful_review",
         "changed_files": ["src/foo.cpp"],
         "diff_stats": {
             "files_changed": 1,
@@ -346,6 +347,7 @@ def test_analyze_run_checks_json_no_commands_configured(monkeypatch, capsys):
     assert exit_code == 0
     assert output["score"] == 40
     assert output["level"] == "MEDIUM"
+    assert output["recommendation"] == "careful_review"
     assert output["reasons"] == [
         "Source implementation files changed",
         "Production code changed",
@@ -427,6 +429,7 @@ def test_analyze_run_checks_failed_build_changes_json_risk(monkeypatch, capsys):
     assert captured.err == ""
     assert output["score"] == 70
     assert output["level"] == "HIGH"
+    assert output["recommendation"] == "do_not_merge_until_build_passes"
     assert "Build failed" in output["reasons"]
     assert output["execution"]["build"]["exit_code"] == 1
     assert output["execution"]["test"] == {
@@ -469,6 +472,7 @@ def test_analyze_run_checks_json_build_timeout_skips_test(monkeypatch, capsys):
     assert exit_code == 0
     assert output["score"] == 60
     assert output["level"] == "MEDIUM"
+    assert output["recommendation"] == "investigate_execution_timeout"
     assert "Build command timed out" in output["reasons"]
     assert output["execution"]["build"] == {
         "configured": True,
@@ -515,6 +519,7 @@ def test_analyze_run_checks_json_test_fails(monkeypatch, capsys):
     assert exit_code == 0
     assert output["score"] == 65
     assert output["level"] == "MEDIUM"
+    assert output["recommendation"] == "do_not_merge_until_tests_pass"
     assert "Tests failed" in output["reasons"]
     assert output["execution"]["test"] == {
         "configured": True,

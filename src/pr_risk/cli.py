@@ -5,7 +5,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from pr_risk import api_change, cmake_analysis, config, diff_stats, git_diff, report, risk, runner
+from pr_risk import api_change, cmake_analysis, config, diff_stats, git_diff, recommendation, report, risk, runner
 
 
 def app(argv: list[str] | None = None) -> int:
@@ -104,6 +104,7 @@ def _json_report(
     return {
         "score": result.score,
         "level": result.level,
+        "recommendation": recommendation.recommend_review(result, execution_result),
         "changed_files": changed_files,
         "diff_stats": asdict(stats),
         "reasons": result.reasons,

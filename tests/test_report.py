@@ -20,6 +20,8 @@ def test_print_report_outputs_changed_files_and_risk_summary(capsys):
     assert "src/widget.cpp" in output
     assert "Risk score: 75/100" in output
     assert "Risk level: HIGH" in output
+    assert "Recommendation:" in output
+    assert "- Require senior review." in output
     assert "Reasons:" in output
     assert "- Changed CMake files" in output
     assert "- No test files changed" in output
@@ -101,6 +103,35 @@ def test_print_report_omits_execution_checks_when_not_provided(capsys):
 
     output = capsys.readouterr().out
     assert "Execution Checks:" not in output
+
+
+def test_print_report_outputs_normal_review_recommendation(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report([], risk)
+
+    output = capsys.readouterr().out
+    assert "Recommendation:" in output
+    assert "- Normal review." in output
+
+
+def test_print_report_outputs_build_failed_recommendation(capsys):
+    risk = RiskResult(score=75, level="HIGH", reasons=["Header/API files changed", "Build failed"])
+
+    print_report(
+        [],
+        risk,
+        execution_result=ExecutionResult(
+            build=_command_result("build", 1, 2.0),
+            test=None,
+            test_skipped=True,
+            test_skip_reason="Build failed",
+        ),
+    )
+
+    output = capsys.readouterr().out
+    assert "Recommendation:" in output
+    assert "- Do not merge until build passes." in output
 
 
 def test_print_report_outputs_no_execution_commands_configured(capsys):
