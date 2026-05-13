@@ -10,6 +10,7 @@ Current scope:
 - Deterministic scoring based on changed file paths and diff churn.
 - C++ source/header and CMake file awareness.
 - Heuristic C++/CMake patch signal detection.
+- Execution-aware risk scoring from configured build/test commands.
 - Test-file detection for common test naming patterns.
 - Text and JSON output.
 
@@ -25,6 +26,7 @@ Risk scoring is deterministic and based on changed file paths, diff statistics, 
 - Docs-only changes: files under `docs/`, README files, `.md`, and `.markdown` changes stay low risk and do not trigger the missing-tests signal.
 - Churn-aware scoring: large total line churn increases risk at fixed thresholds.
 - File-count scoring: broad changes across many files increase risk at fixed thresholds.
+- v0.5.0 execution-aware scoring: configured build/test results can add risk when `--run-checks` is used.
 
 Diff statistics are parsed from Git numstat output and include:
 
@@ -56,7 +58,33 @@ Header/API-like patch detection covers:
 - simple function declarations
 - trailing return type declarations
 
-Patch signals affect risk scoring conservatively at the category level. They are heuristics only: `pr-risk` is not a compiler, does not perform full C++ parsing, does not perform ABI analysis, does not build or run tests yet, and does not prove breaking changes.
+Patch signals affect risk scoring conservatively at the category level. They are heuristics only: `pr-risk` is not a compiler, does not perform full C++ parsing, does not perform ABI analysis, and does not prove breaking changes.
+
+## Execution-Aware Scoring
+
+v0.5.0 adds execution-aware risk scoring for configured local build/test commands.
+
+Execution penalties:
+
+- Build failed: `+30`
+- Tests failed: `+25`
+- Build timed out: `+20`
+- Tests timed out: `+20`
+- Timeouts are not double-counted as failures.
+- Tests skipped because the build failed or timed out do not receive a test penalty.
+- Execution not run, or no commands configured, means no execution penalty.
+- The final score remains capped at `100`.
+
+A failing configured command is evidence, not proof that the PR itself is wrong.
+
+Recommendations:
+
+- `do_not_merge_until_build_passes`: build command failed.
+- `do_not_merge_until_tests_pass`: test command failed.
+- `investigate_execution_timeout`: build or test command timed out.
+- `require_senior_review`: risk level is `HIGH`.
+- `careful_review`: risk level is `MEDIUM`.
+- `normal_review`: risk level is `LOW`.
 
 ## Architecture
 
@@ -91,7 +119,7 @@ By default, analysis does not run local commands. Use `--run-checks` to add conf
 
 ## Configuration
 
-v0.4.0 supports configured build/test execution evidence through `.pr-risk.toml`:
+v0.4.0 introduced configured build/test execution evidence through `.pr-risk.toml`. v0.5.0 uses that execution evidence in risk scoring when `--run-checks` is provided:
 
 ```toml
 [commands]
@@ -106,8 +134,8 @@ timeout_seconds = 300
 - `[commands].test` is optional.
 - `[execution].timeout_seconds` is optional and defaults to `300`.
 - Commands run only when `--run-checks` is provided.
-- Failed build/test execution is reported as evidence only and does not change the risk score in v0.4.0.
-- stdout/stderr are captured internally but are not printed in text or JSON output in v0.4.0.
+- Failed or timed-out build/test execution can increase the risk score in v0.5.0.
+- stdout/stderr are captured internally but are not printed in text or JSON output.
 
 Security warning: commands are executed locally through the system shell. Only run trusted repository configs.
 
@@ -136,6 +164,8 @@ Changed Files
 +----------------------+-------+
 Risk score: 100/100
 Risk level: HIGH
+Recommendation:
+- Require senior review.
 Reasons:
 - Build system files changed
 - Header/API files changed
@@ -154,10 +184,14 @@ Header/API:
 With `--run-checks`, text output includes execution evidence:
 
 ```text
+Recommendation:
+- Do not merge until tests pass.
 Execution Checks:
 - Build: passed (exit code 0, 12.4s)
 - Test: failed (exit code 8, 5.1s)
 ```
+
+If the build fails or times out, the configured test command is skipped and does not add a test penalty.
 
 ## JSON Output
 
@@ -170,6 +204,7 @@ The JSON output contains:
 
 - `score`: integer risk score from `0` to `100`
 - `level`: `LOW`, `MEDIUM`, or `HIGH`
+- `recommendation`: merge/review recommendation string
 - `changed_files`: changed file paths from Git
 - `diff_stats`: diff statistics object
 - `patch_signals`: heuristic CMake and API-like patch signals
@@ -229,6 +264,7 @@ Example:
 {
   "score": 100,
   "level": "HIGH",
+  "recommendation": "require_senior_review",
   "changed_files": ["CMakeLists.txt", "include/widget.hpp", "src/widget.cpp"],
   "diff_stats": {
     "files_changed": 3,
@@ -264,12 +300,12 @@ Example:
 - Deterministic heuristic analysis only.
 - Local CLI only.
 - No GitHub integration yet.
-- Commands run locally, not sandboxed.
-- User is responsible for command safety.
+- Commands run locally through the system shell.
+- Only trusted repository configs should be run.
 - No Docker isolation yet.
 - No automatic build discovery yet.
 - No stdout/stderr artifact storage yet.
-- Execution does not affect risk score yet.
+- No coverage parsing yet.
 - Not a compiler.
 - Not full C++ parsing.
 - Not ABI analysis.
@@ -277,5 +313,5 @@ Example:
 
 ## Roadmap
 
-- v0.5.0: execution-aware risk scoring.
 - v0.6.0: Docker sandbox execution.
+- v0.7.0: GitHub/GitLab PR integration.
