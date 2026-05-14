@@ -103,6 +103,27 @@ def test_print_report_omits_execution_checks_when_not_provided(capsys):
 
     output = capsys.readouterr().out
     assert "Execution Checks:" not in output
+    assert "Executor:" not in output
+
+
+def test_print_report_outputs_executor_when_execution_checks_are_provided(capsys):
+    risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
+
+    print_report(
+        [],
+        risk,
+        execution_result=ExecutionResult(
+            build=_command_result("build", 0, 12.4),
+            test=_command_result("test", 8, 5.1),
+            executor="docker",
+        ),
+    )
+
+    output = capsys.readouterr().out
+    assert "Execution Checks:" in output
+    assert "Executor: docker" in output
+    assert "- Build: passed (exit code 0, 12.4s)" in output
+    assert "- Test: failed (exit code 8, 5.1s)" in output
 
 
 def test_print_report_outputs_normal_review_recommendation(capsys):
@@ -137,10 +158,11 @@ def test_print_report_outputs_build_failed_recommendation(capsys):
 def test_print_report_outputs_no_execution_commands_configured(capsys):
     risk = RiskResult(score=0, level="LOW", reasons=["No changed files"])
 
-    print_report([], risk, execution_result=ExecutionResult(build=None, test=None))
+    print_report([], risk, execution_result=ExecutionResult(build=None, test=None, executor="docker"))
 
     output = capsys.readouterr().out
     assert "Execution Checks:" in output
+    assert "Executor: docker" in output
     assert "No execution commands configured" in output
 
 

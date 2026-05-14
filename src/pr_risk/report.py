@@ -72,6 +72,7 @@ def _print_patch_signals(console: Console, cmake_signals: list[str], api_signals
 
 def _print_execution_checks(console: Console, execution_result: ExecutionResult) -> None:
     console.print("Execution Checks:")
+    console.print(f"Executor: {execution_result.executor}")
     if execution_result.build is None and execution_result.test is None and not execution_result.test_skipped:
         console.print("No execution commands configured")
         return

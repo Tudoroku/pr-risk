@@ -154,6 +154,7 @@ def _json_execution(
 
     return {
         "run": True,
+        "executor": execution_result.executor,
         "build": _json_build_execution(execution_config, execution_result),
         "test": _json_test_execution(execution_config, execution_result),
     }

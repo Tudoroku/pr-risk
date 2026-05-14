@@ -498,6 +498,19 @@ def test_analyze_format_json_without_run_checks_includes_execution_not_run(monke
     assert exit_code == 0
     assert captured.err == ""
     assert output["execution"] == {"run": False}
+    assert "executor" not in output["execution"]
+
+
+def test_analyze_format_json_without_run_checks_omits_executor_override(monkeypatch, capsys):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "json", "--executor", "docker"])
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert exit_code == 0
+    assert captured.err == ""
+    assert output["execution"] == {"run": False}
 
 
 def test_analyze_run_checks_json_no_commands_configured(monkeypatch, capsys):
@@ -532,6 +545,7 @@ def test_analyze_run_checks_json_no_commands_configured(monkeypatch, capsys):
     ]
     assert output["execution"] == {
         "run": True,
+        "executor": "local",
         "build": {
             "configured": False,
         },
@@ -551,6 +565,7 @@ def test_analyze_run_checks_json_build_passes(monkeypatch, capsys):
         execution_result=cli.runner.ExecutionResult(
             build=_command_result("build", "cmake --build build", 0, False, 12.4),
             test=None,
+            executor="docker",
         ),
     )
 
@@ -559,6 +574,7 @@ def test_analyze_run_checks_json_build_passes(monkeypatch, capsys):
     captured = capsys.readouterr()
     output = json.loads(captured.out)
     assert exit_code == 0
+    assert output["execution"]["executor"] == "docker"
     assert output["execution"]["build"] == {
         "configured": True,
         "command": "cmake --build build",
