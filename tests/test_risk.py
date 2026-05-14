@@ -1,5 +1,6 @@
 from pr_risk.diff_stats import DiffStats
 from pr_risk.risk import RiskResult, calculate_risk
+from pr_risk.runner import CommandResult, ExecutionResult
 
 
 class ExecutionResultStub:
@@ -613,6 +614,33 @@ def test_build_failure_increases_score():
         ["src/widget.cpp", "tests/test_widget.cpp"],
         execution_result=ExecutionResultStub(
             build=CommandResultStub(exit_code=1),
+        ),
+    )
+
+    assert result.score == 50
+    assert result.level == "MEDIUM"
+    assert result.reasons == [
+        "Source implementation files changed",
+        "Production code changed",
+        "Build failed",
+    ]
+
+
+def test_execution_scoring_works_with_docker_executor_result():
+    result = calculate_risk(
+        ["src/widget.cpp", "tests/test_widget.cpp"],
+        execution_result=ExecutionResult(
+            build=CommandResult(
+                name="build",
+                command="build",
+                exit_code=1,
+                stdout="",
+                stderr="",
+                timed_out=False,
+                duration_seconds=1.0,
+            ),
+            test=None,
+            executor="docker",
         ),
     )
 

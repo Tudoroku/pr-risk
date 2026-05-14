@@ -24,6 +24,15 @@ def test_build_failed_overrides_score_level_recommendation():
     assert recommendation == "do_not_merge_until_build_passes"
 
 
+def test_build_failed_overrides_score_level_recommendation_with_docker_executor():
+    recommendation = recommend_review(
+        _risk_result("LOW"),
+        ExecutionResult(build=_command_result(exit_code=1), test=None, executor="docker"),
+    )
+
+    assert recommendation == "do_not_merge_until_build_passes"
+
+
 def test_tests_failed_overrides_score_level_recommendation():
     recommendation = recommend_review(
         _risk_result("LOW"),

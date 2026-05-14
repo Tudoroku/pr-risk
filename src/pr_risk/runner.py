@@ -21,6 +21,7 @@ class CommandResult:
 class ExecutionResult:
     build: CommandResult | None
     test: CommandResult | None
+    executor: str = "local"
     test_skipped: bool = False
     test_skip_reason: str | None = None
 
@@ -66,13 +67,17 @@ def run_command(
 
 
 def run_execution_checks(repo_path: Path, config: ExecutionConfig) -> ExecutionResult:
+    executor = config.executor
+    if executor not in {"local", "docker"}:
+        raise ValueError(f"Unsupported execution executor: {config.executor}")
+
     build_result = None
     if config.build_command is not None:
-        build_result = run_command(
+        build_result = _run_configured_command(
             "build",
             config.build_command,
             repo_path,
-            config.timeout_seconds,
+            config,
         )
 
     if build_result is not None:
@@ -80,6 +85,7 @@ def run_execution_checks(repo_path: Path, config: ExecutionConfig) -> ExecutionR
             return ExecutionResult(
                 build=build_result,
                 test=None,
+                executor=executor,
                 test_skipped=True,
                 test_skip_reason="Build timed out",
             )
@@ -87,20 +93,54 @@ def run_execution_checks(repo_path: Path, config: ExecutionConfig) -> ExecutionR
             return ExecutionResult(
                 build=build_result,
                 test=None,
+                executor=executor,
                 test_skipped=True,
                 test_skip_reason="Build failed",
             )
 
     test_result = None
     if config.test_command is not None:
-        test_result = run_command(
+        test_result = _run_configured_command(
             "test",
             config.test_command,
+            repo_path,
+            config,
+        )
+
+    return ExecutionResult(build=build_result, test=test_result, executor=executor)
+
+
+def _run_configured_command(
+    name: str,
+    command: str,
+    repo_path: Path,
+    config: ExecutionConfig,
+) -> CommandResult:
+    if config.executor == "local":
+        return run_command(
+            name,
+            command,
             repo_path,
             config.timeout_seconds,
         )
 
-    return ExecutionResult(build=build_result, test=test_result)
+    if config.executor == "docker":
+        docker_config = config.docker
+        if docker_config is None or docker_config.image is None:
+            raise ValueError("docker config is required when execution.executor is docker")
+
+        from pr_risk.docker_runner import run_docker_command
+
+        return run_docker_command(
+            name,
+            command,
+            repo_path,
+            docker_config.image,
+            docker_config.workdir,
+            config.timeout_seconds,
+        )
+
+    raise ValueError(f"Unsupported execution executor: {config.executor}")
 
 
 def _safe_output(output: str | bytes | None) -> str:
