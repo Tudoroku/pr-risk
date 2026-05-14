@@ -1,6 +1,6 @@
 [project]
 name = "pr-risk"
-version = "0.5.1"
+version = "0.6.0"
 description = "Evidence-backed PR risk analyzer for C++/CMake repositories"
 requires-python = ">=3.11"
 dependencies = [
