@@ -27,6 +27,7 @@ Risk scoring is deterministic and based on changed file paths, diff statistics, 
 - Churn-aware scoring: large total line churn increases risk at fixed thresholds.
 - File-count scoring: broad changes across many files increase risk at fixed thresholds.
 - v0.5.0 execution-aware scoring: configured build/test results can add risk when `--run-checks` is used.
+- v0.6.0 Docker-based execution: configured checks can run through Docker when selected.
 
 Diff statistics are parsed from Git numstat output and include:
 
@@ -86,6 +87,49 @@ Recommendations:
 - `careful_review`: risk level is `MEDIUM`.
 - `normal_review`: risk level is `LOW`.
 
+## v0.6.0
+
+v0.6.0 adds Docker-based execution for configured checks. The local executor remains the default, and normal local execution still exists.
+
+Use `--executor local` to run configured checks through the local system shell:
+
+```bash
+pr-risk analyze --repo . --base main --run-checks --executor local
+```
+
+Use `--executor docker` to run configured checks in Docker:
+
+```bash
+pr-risk analyze --repo . --base main --run-checks --executor docker
+```
+
+Executor settings can also be configured in `.pr-risk.toml`:
+
+```toml
+[commands]
+build = "cmake --build build"
+test = "ctest --test-dir build --output-on-failure"
+
+[execution]
+timeout_seconds = 300
+executor = "docker"
+
+[docker]
+image = "my-cpp-cmake-image:latest"
+workdir = "/workspace"
+```
+
+- `[execution].executor` is optional and defaults to `local`.
+- `docker.image` is required when the selected executor is `docker`.
+- `docker.workdir` is optional.
+- CLI `--executor` overrides only the configured executor.
+- CLI `--executor` does not replace `docker.image` or `docker.workdir`.
+- Docker must be installed and running for Docker execution.
+- The Docker image must contain the needed build/test tools.
+- Docker improves execution separation but is not perfect security sandboxing.
+- stdout/stderr are still captured internally but are not printed in text or JSON output.
+- Automatic Docker image building is not implemented yet.
+
 ## Architecture
 
 - `cli.py`: command-line argument parsing and command dispatch.
@@ -112,6 +156,8 @@ python -m pytest
 pr-risk analyze --repo . --base main
 pr-risk analyze --repo . --base main --format json
 pr-risk analyze --repo . --base main --run-checks
+pr-risk analyze --repo . --base main --run-checks --executor local
+pr-risk analyze --repo . --base main --run-checks --executor docker
 pr-risk --version
 ```
 
@@ -128,11 +174,13 @@ test = "ctest --test-dir build --output-on-failure"
 
 [execution]
 timeout_seconds = 300
+executor = "local"
 ```
 
 - `[commands].build` is optional.
 - `[commands].test` is optional.
 - `[execution].timeout_seconds` is optional and defaults to `300`.
+- `[execution].executor` is optional and defaults to `local`.
 - Commands run only when `--run-checks` is provided.
 - Failed or timed-out build/test execution can increase the risk score in v0.5.0.
 - stdout/stderr are captured internally but are not printed in text or JSON output.
@@ -187,6 +235,7 @@ With `--run-checks`, text output includes execution evidence:
 Recommendation:
 - Do not merge until tests pass.
 Execution Checks:
+Executor: local
 - Build: passed (exit code 0, 12.4s)
 - Test: failed (exit code 8, 5.1s)
 ```
@@ -238,6 +287,7 @@ With `--run-checks`, JSON execution evidence uses this shape:
 {
   "execution": {
     "run": true,
+    "executor": "local",
     "build": {
       "configured": true,
       "command": "cmake --build build",
@@ -300,9 +350,10 @@ Example:
 - Deterministic heuristic analysis only.
 - Local CLI only.
 - No GitHub integration yet.
-- Commands run locally through the system shell.
+- Commands can run locally through the system shell or through Docker when configured.
 - Only trusted repository configs should be run.
-- No Docker isolation yet.
+- Docker execution is not perfect security sandboxing.
+- No automatic Docker image building yet.
 - No automatic build discovery yet.
 - No stdout/stderr artifact storage yet.
 - No coverage parsing yet.
@@ -313,5 +364,6 @@ Example:
 
 ## Roadmap
 
-- v0.6.0: Docker sandbox execution.
 - v0.7.0: GitHub/GitLab PR integration.
+- v0.8.0: configurable team policies.
+- v0.9.0: LLM evidence summaries.
