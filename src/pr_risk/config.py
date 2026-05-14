@@ -8,10 +8,18 @@ class ConfigError(Exception):
 
 
 @dataclass(frozen=True)
+class DockerConfig:
+    image: str | None
+    workdir: str = "/workspace"
+
+
+@dataclass(frozen=True)
 class ExecutionConfig:
     build_command: str | None
     test_command: str | None
     timeout_seconds: int
+    executor: str = "local"
+    docker: DockerConfig | None = None
 
 
 def load_config(repo_path: Path) -> ExecutionConfig:
@@ -27,11 +35,14 @@ def load_config(repo_path: Path) -> ExecutionConfig:
 
     commands = _table(config_data, "commands")
     execution = _table(config_data, "execution")
+    executor = _executor(execution)
 
     return ExecutionConfig(
         build_command=_optional_command(commands, "build"),
         test_command=_optional_command(commands, "test"),
         timeout_seconds=_timeout_seconds(execution),
+        executor=executor,
+        docker=_docker_config(config_data, executor),
     )
 
 
@@ -70,3 +81,40 @@ def _timeout_seconds(execution: dict[str, object]) -> int:
     if value <= 0:
         raise ConfigError("execution.timeout_seconds must be positive")
     return value
+
+
+def _executor(execution: dict[str, object]) -> str:
+    value = execution.get("executor", "local")
+    if not isinstance(value, str):
+        raise ConfigError("execution.executor must be one of: local, docker")
+
+    executor = value.strip()
+    if executor not in {"local", "docker"}:
+        raise ConfigError("execution.executor must be one of: local, docker")
+    return executor
+
+
+def _docker_config(config_data: dict[str, object], executor: str) -> DockerConfig | None:
+    if executor != "docker":
+        return None
+
+    docker = _table(config_data, "docker")
+    image = _docker_image(docker)
+    return DockerConfig(
+        image=image,
+        workdir=_docker_workdir(docker),
+    )
+
+
+def _docker_image(docker: dict[str, object]) -> str:
+    value = docker.get("image")
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError("docker.image is required when execution.executor is docker")
+    return value.strip()
+
+
+def _docker_workdir(docker: dict[str, object]) -> str:
+    value = docker.get("workdir", "/workspace")
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError("docker.workdir must be a non-empty string")
+    return value.strip()

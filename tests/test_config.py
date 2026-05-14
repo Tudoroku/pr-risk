@@ -1,6 +1,6 @@
 import pytest
 
-from pr_risk.config import ConfigError, ExecutionConfig, load_config
+from pr_risk.config import ConfigError, DockerConfig, ExecutionConfig, load_config
 
 
 def _write_config(tmp_path, contents):
@@ -72,6 +72,98 @@ def test_load_config_reads_custom_timeout(tmp_path):
     )
 
 
+def test_load_config_defaults_executor_to_local(tmp_path):
+    _write_config(
+        tmp_path,
+        "[execution]\n"
+        "timeout_seconds = 120\n",
+    )
+
+    assert load_config(tmp_path).executor == "local"
+
+
+def test_load_config_preserves_v0_5_1_config_behavior(tmp_path):
+    _write_config(
+        tmp_path,
+        "[commands]\n"
+        'build = "cmake --build build"\n'
+        'test = "ctest --test-dir build --output-on-failure"\n'
+        "\n"
+        "[execution]\n"
+        "timeout_seconds = 300\n",
+    )
+
+    assert load_config(tmp_path) == ExecutionConfig(
+        build_command="cmake --build build",
+        test_command="ctest --test-dir build --output-on-failure",
+        timeout_seconds=300,
+        executor="local",
+        docker=None,
+    )
+
+
+def test_load_config_parses_docker_executor(tmp_path):
+    _write_config(
+        tmp_path,
+        "[execution]\n"
+        'executor = "docker"\n'
+        "\n"
+        "[docker]\n"
+        'image = "my-cpp-cmake-image:latest"\n',
+    )
+
+    assert load_config(tmp_path).executor == "docker"
+
+
+def test_load_config_parses_docker_image(tmp_path):
+    _write_config(
+        tmp_path,
+        "[execution]\n"
+        'executor = "docker"\n'
+        "\n"
+        "[docker]\n"
+        'image = "my-cpp-cmake-image:latest"\n',
+    )
+
+    assert load_config(tmp_path).docker == DockerConfig(
+        image="my-cpp-cmake-image:latest",
+        workdir="/workspace",
+    )
+
+
+def test_load_config_parses_docker_workdir(tmp_path):
+    _write_config(
+        tmp_path,
+        "[execution]\n"
+        'executor = "docker"\n'
+        "\n"
+        "[docker]\n"
+        'image = "my-cpp-cmake-image:latest"\n'
+        'workdir = "/src"\n',
+    )
+
+    assert load_config(tmp_path).docker == DockerConfig(
+        image="my-cpp-cmake-image:latest",
+        workdir="/src",
+    )
+
+
+def test_load_config_defaults_docker_workdir(tmp_path):
+    _write_config(
+        tmp_path,
+        "[execution]\n"
+        'executor = "docker"\n'
+        "\n"
+        "[docker]\n"
+        'image = "my-cpp-cmake-image:latest"\n',
+    )
+
+    assert load_config(tmp_path).docker == DockerConfig(
+        image="my-cpp-cmake-image:latest",
+        workdir="/workspace",
+    )
+
+
 def test_load_config_allows_missing_commands_section(tmp_path):
     _write_config(
         tmp_path,
@@ -127,6 +219,64 @@ def test_load_config_raises_config_error_for_negative_timeout(tmp_path):
 
     with pytest.raises(ConfigError):
         load_config(tmp_path)
+
+
+def test_load_config_rejects_invalid_executor(tmp_path):
+    _write_config(
+        tmp_path,
+        "[execution]\n"
+        'executor = "podman"\n',
+    )
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path)
+
+
+def test_load_config_rejects_docker_executor_without_docker_image(tmp_path):
+    _write_config(
+        tmp_path,
+        "[execution]\n"
+        'executor = "docker"\n',
+    )
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path)
+
+
+def test_load_config_allows_missing_docker_section_for_local_executor(tmp_path):
+    _write_config(
+        tmp_path,
+        "[execution]\n"
+        'executor = "local"\n',
+    )
+
+    assert load_config(tmp_path) == ExecutionConfig(
+        build_command=None,
+        test_command=None,
+        timeout_seconds=300,
+        executor="local",
+        docker=None,
+    )
+
+
+def test_load_config_ignores_docker_section_for_local_executor(tmp_path):
+    _write_config(
+        tmp_path,
+        "[execution]\n"
+        'executor = "local"\n'
+        "\n"
+        "[docker]\n"
+        'image = "my-cpp-cmake-image:latest"\n'
+        'workdir = "/src"\n',
+    )
+
+    assert load_config(tmp_path) == ExecutionConfig(
+        build_command=None,
+        test_command=None,
+        timeout_seconds=300,
+        executor="local",
+        docker=None,
+    )
 
 
 def test_load_config_treats_blank_command_strings_as_missing(tmp_path):
