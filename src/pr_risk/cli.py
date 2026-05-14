@@ -5,7 +5,18 @@ import sys
 from dataclasses import asdict, replace
 from pathlib import Path
 
-from pr_risk import api_change, cmake_analysis, config, diff_stats, git_diff, recommendation, report, risk, runner
+from pr_risk import (
+    api_change,
+    cmake_analysis,
+    config,
+    diff_stats,
+    git_diff,
+    markdown_report,
+    recommendation,
+    report,
+    risk,
+    runner,
+)
 
 
 def app(argv: list[str] | None = None) -> int:
@@ -35,7 +46,7 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze_parser = subparsers.add_parser("analyze")
     analyze_parser.add_argument("--repo", default=".")
     analyze_parser.add_argument("--base", default="main")
-    analyze_parser.add_argument("--format", choices=("text", "json"), default="text")
+    analyze_parser.add_argument("--format", choices=("text", "json", "markdown"), default="text")
     analyze_parser.add_argument("--run-checks", action="store_true", default=False)
     analyze_parser.add_argument("--executor", default=None)
 
@@ -108,6 +119,19 @@ def _run_analyze(
                     execution_result,
                 )
             )
+        )
+    elif output_format == "markdown":
+        print(
+            markdown_report.render_markdown_report(
+                result,
+                changed_files,
+                stats,
+                cmake_signals,
+                api_signals,
+                execution_result,
+                recommendation.recommend_review(result, execution_result),
+            ),
+            end="",
         )
     elif run_checks:
         report.print_report(changed_files, result, stats, cmake_signals, api_signals, execution_result)

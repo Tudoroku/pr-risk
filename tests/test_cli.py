@@ -195,6 +195,190 @@ def test_analyze_format_json_prints_valid_json(monkeypatch, capsys):
     }
 
 
+def test_analyze_format_markdown_prints_markdown_report(monkeypatch, capsys):
+    risk_result = RiskResult(
+        score=65,
+        level="MEDIUM",
+        reasons=["Source implementation files changed"],
+    )
+    stats = DiffStats(
+        files_changed=1,
+        lines_added=120,
+        lines_deleted=30,
+        total_churn=150,
+        binary_files_changed=0,
+    )
+    calls = []
+
+    monkeypatch.setattr(cli.git_diff, "get_changed_files", lambda repo, base: ["src/foo.cpp"])
+    monkeypatch.setattr(cli.git_diff, "get_diff_numstat", lambda repo, base: "120\t30\tsrc/foo.cpp\n")
+    monkeypatch.setattr(cli.git_diff, "get_diff_patch", lambda repo, base: "patch text")
+    monkeypatch.setattr(cli.diff_stats, "parse_numstat", lambda numstat_text: stats)
+    monkeypatch.setattr(cli.cmake_analysis, "analyze_cmake_changes", lambda patch_text: ["Link dependencies changed"])
+    monkeypatch.setattr(cli.api_change, "analyze_api_changes", lambda patch_text: [])
+    monkeypatch.setattr(
+        cli.risk,
+        "calculate_risk",
+        lambda changed_files, diff_stats, cmake_signals, api_signals: risk_result,
+    )
+    monkeypatch.setattr(
+        cli.report,
+        "print_report",
+        lambda changed_files, risk, diff_stats, cmake_signals, api_signals: pytest.fail(
+            "text report should not be printed"
+        ),
+    )
+
+    def fake_render_markdown_report(
+        received_risk,
+        changed_files,
+        diff_stats,
+        cmake_signals,
+        api_signals,
+        execution_result,
+        received_recommendation,
+    ):
+        calls.append(
+            (
+                received_risk,
+                changed_files,
+                diff_stats,
+                cmake_signals,
+                api_signals,
+                execution_result,
+                received_recommendation,
+            )
+        )
+        return "## PR Risk Report\n"
+
+    monkeypatch.setattr(cli.markdown_report, "render_markdown_report", fake_render_markdown_report)
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--format", "markdown"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == "## PR Risk Report\n"
+    assert captured.err == ""
+    assert calls == [
+        (
+            risk_result,
+            ["src/foo.cpp"],
+            stats,
+            ["Link dependencies changed"],
+            [],
+            None,
+            "careful_review",
+        )
+    ]
+
+
+def test_analyze_run_checks_format_markdown_uses_execution_result(monkeypatch, capsys):
+    risk_result = RiskResult(65, "MEDIUM", ["Execution-aware reason"])
+    stats = DiffStats(
+        files_changed=1,
+        lines_added=120,
+        lines_deleted=30,
+        total_churn=150,
+        binary_files_changed=0,
+    )
+    execution_config = cli.config.ExecutionConfig(
+        build_command="cmake --build build",
+        test_command="ctest --test-dir build",
+        timeout_seconds=10,
+    )
+    execution_result = cli.runner.ExecutionResult(
+        build=_command_result("build", "cmake --build build", 0, False, 1.2),
+        test=_command_result("test", "ctest --test-dir build", 0, False, 2.4),
+    )
+    calls = []
+
+    monkeypatch.setattr(cli.git_diff, "get_changed_files", lambda repo, base: ["src/foo.cpp"])
+    monkeypatch.setattr(cli.git_diff, "get_diff_numstat", lambda repo, base: "120\t30\tsrc/foo.cpp\n")
+    monkeypatch.setattr(cli.git_diff, "get_diff_patch", lambda repo, base: "patch text")
+    monkeypatch.setattr(cli.diff_stats, "parse_numstat", lambda numstat_text: stats)
+    monkeypatch.setattr(cli.cmake_analysis, "analyze_cmake_changes", lambda patch_text: ["Link dependencies changed"])
+    monkeypatch.setattr(cli.api_change, "analyze_api_changes", lambda patch_text: [])
+
+    def fake_load_config(repo_path):
+        calls.append(("load_config", repo_path))
+        return execution_config
+
+    def fake_run_execution_checks(repo_path, loaded_config):
+        calls.append(("run_execution_checks", repo_path, loaded_config))
+        return execution_result
+
+    def fake_calculate_risk(changed_files, diff_stats, cmake_signals, api_signals, execution_result=None):
+        calls.append(("calculate_risk", changed_files, diff_stats, cmake_signals, api_signals, execution_result))
+        return risk_result
+
+    def fake_render_markdown_report(
+        received_risk,
+        changed_files,
+        diff_stats,
+        cmake_signals,
+        api_signals,
+        received_execution_result,
+        received_recommendation,
+    ):
+        calls.append(
+            (
+                "render_markdown_report",
+                received_risk,
+                changed_files,
+                diff_stats,
+                cmake_signals,
+                api_signals,
+                received_execution_result,
+                received_recommendation,
+            )
+        )
+        return "## PR Risk Report\n\nExecution-aware markdown\n"
+
+    monkeypatch.setattr(cli.config, "load_config", fake_load_config)
+    monkeypatch.setattr(cli.runner, "run_execution_checks", fake_run_execution_checks)
+    monkeypatch.setattr(cli.risk, "calculate_risk", fake_calculate_risk)
+    monkeypatch.setattr(
+        cli.markdown_report,
+        "render_markdown_report",
+        fake_render_markdown_report,
+    )
+    monkeypatch.setattr(
+        cli.report,
+        "print_report",
+        lambda *args, **kwargs: pytest.fail("text report should not be printed"),
+    )
+    monkeypatch.setattr(cli.json, "dumps", lambda *args, **kwargs: pytest.fail("json output should not be used"))
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--run-checks", "--format", "markdown"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == "## PR Risk Report\n\nExecution-aware markdown\n"
+    assert captured.err == ""
+    assert calls == [
+        ("load_config", Path(".")),
+        ("run_execution_checks", Path("."), execution_config),
+        (
+            "calculate_risk",
+            ["src/foo.cpp"],
+            stats,
+            ["Link dependencies changed"],
+            [],
+            execution_result,
+        ),
+        (
+            "render_markdown_report",
+            risk_result,
+            ["src/foo.cpp"],
+            stats,
+            ["Link dependencies changed"],
+            [],
+            execution_result,
+            "careful_review",
+        ),
+    ]
+
+
 def test_analyze_rejects_invalid_format(capsys):
     with pytest.raises(SystemExit) as exc_info:
         cli.app(["analyze", "--format", "yaml"])
