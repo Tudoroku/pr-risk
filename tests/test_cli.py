@@ -303,6 +303,183 @@ def test_analyze_run_checks_loads_config_and_runs_execution_checks(monkeypatch):
     ]
 
 
+def test_analyze_run_checks_executor_local_override(monkeypatch):
+    received = {}
+    execution_config = cli.config.ExecutionConfig(
+        build_command="build command",
+        test_command=None,
+        timeout_seconds=10,
+        executor="docker",
+        docker=cli.config.DockerConfig(image="example/image:latest", workdir="/repo"),
+    )
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+    monkeypatch.setattr(cli.config, "load_config", lambda repo_path: execution_config)
+
+    def fake_run_execution_checks(repo_path, loaded_config):
+        received["config"] = loaded_config
+        return cli.runner.ExecutionResult(build=None, test=None, executor=loaded_config.executor)
+
+    monkeypatch.setattr(cli.runner, "run_execution_checks", fake_run_execution_checks)
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--run-checks", "--executor", "local"])
+
+    assert exit_code == 0
+    assert execution_config.executor == "docker"
+    assert received["config"] is not execution_config
+    assert received["config"].executor == "local"
+    assert received["config"].docker == execution_config.docker
+
+
+def test_analyze_run_checks_executor_docker_override_preserves_docker_config(monkeypatch):
+    received = {}
+    docker_config = cli.config.DockerConfig(image="example/image:latest", workdir="/repo")
+    execution_config = cli.config.ExecutionConfig(
+        build_command="build command",
+        test_command=None,
+        timeout_seconds=10,
+        executor="local",
+        docker=docker_config,
+    )
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+    monkeypatch.setattr(cli.config, "load_config", lambda repo_path: execution_config)
+
+    def fake_run_execution_checks(repo_path, loaded_config):
+        received["config"] = loaded_config
+        return cli.runner.ExecutionResult(build=None, test=None, executor=loaded_config.executor)
+
+    monkeypatch.setattr(cli.runner, "run_execution_checks", fake_run_execution_checks)
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--run-checks", "--executor", "docker"])
+
+    assert exit_code == 0
+    assert received["config"].executor == "docker"
+    assert received["config"].docker == docker_config
+
+
+def test_analyze_run_checks_cli_override_beats_config_executor(monkeypatch):
+    received = {}
+    execution_config = cli.config.ExecutionConfig(
+        build_command=None,
+        test_command=None,
+        timeout_seconds=10,
+        executor="docker",
+        docker=cli.config.DockerConfig(image="example/image:latest", workdir="/repo"),
+    )
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+    monkeypatch.setattr(cli.config, "load_config", lambda repo_path: execution_config)
+
+    def fake_run_execution_checks(repo_path, loaded_config):
+        received["executor"] = loaded_config.executor
+        return cli.runner.ExecutionResult(build=None, test=None, executor=loaded_config.executor)
+
+    monkeypatch.setattr(cli.runner, "run_execution_checks", fake_run_execution_checks)
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--run-checks", "--executor", "local"])
+
+    assert exit_code == 0
+    assert received["executor"] == "local"
+
+
+def test_analyze_run_checks_executor_docker_without_config_errors_cleanly(monkeypatch, capsys):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+    monkeypatch.setattr(
+        cli.config,
+        "load_config",
+        lambda repo_path: cli.config.ExecutionConfig(
+            build_command="build command",
+            test_command=None,
+            timeout_seconds=10,
+            executor="local",
+            docker=None,
+        ),
+    )
+    monkeypatch.setattr(
+        cli.runner,
+        "run_execution_checks",
+        lambda repo_path, execution_config: (_ for _ in ()).throw(
+            ValueError("docker config is required when execution.executor is docker")
+        ),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--run-checks", "--executor", "docker"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert captured.out == ""
+    assert captured.err == "error: docker config is required when execution.executor is docker\n"
+
+
+def test_analyze_rejects_invalid_executor(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli.app(["analyze", "--executor", "podman"])
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "argument --executor: must be one of: local, docker" in captured.err
+
+
+def test_analyze_run_checks_executor_local_with_no_config(monkeypatch, tmp_path):
+    received = {}
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+
+    def fake_run_execution_checks(repo_path, execution_config):
+        received["config"] = execution_config
+        return cli.runner.ExecutionResult(build=None, test=None, executor=execution_config.executor)
+
+    monkeypatch.setattr(cli.runner, "run_execution_checks", fake_run_execution_checks)
+
+    exit_code = cli.app(
+        ["analyze", "--repo", str(tmp_path), "--base", "main", "--run-checks", "--executor", "local"]
+    )
+
+    assert exit_code == 0
+    assert received["config"].executor == "local"
+    assert received["config"].docker is None
+
+
+def test_analyze_executor_without_run_checks_does_not_load_config_or_run_commands(monkeypatch):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+    monkeypatch.setattr(
+        cli.config,
+        "load_config",
+        lambda repo_path: pytest.fail("config should not be loaded without --run-checks"),
+    )
+    monkeypatch.setattr(
+        cli.runner,
+        "run_execution_checks",
+        lambda repo_path, execution_config: pytest.fail("checks should not run without --run-checks"),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--executor", "docker"])
+
+    assert exit_code == 0
+
+
+def test_analyze_run_checks_uses_config_executor_when_override_omitted(monkeypatch):
+    received = {}
+    execution_config = cli.config.ExecutionConfig(
+        build_command=None,
+        test_command=None,
+        timeout_seconds=10,
+        executor="docker",
+        docker=cli.config.DockerConfig(image="example/image:latest", workdir="/repo"),
+    )
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+    monkeypatch.setattr(cli.config, "load_config", lambda repo_path: execution_config)
+
+    def fake_run_execution_checks(repo_path, loaded_config):
+        received["config"] = loaded_config
+        return cli.runner.ExecutionResult(build=None, test=None, executor=loaded_config.executor)
+
+    monkeypatch.setattr(cli.runner, "run_execution_checks", fake_run_execution_checks)
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--run-checks"])
+
+    assert exit_code == 0
+    assert received["config"] is execution_config
+    assert received["config"].executor == "docker"
+
+
 def test_analyze_run_checks_with_no_config_or_commands_does_not_crash(monkeypatch, tmp_path):
     _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
 

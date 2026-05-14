@@ -2,7 +2,7 @@ import argparse
 import importlib.metadata
 import json
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from pr_risk import api_change, cmake_analysis, config, diff_stats, git_diff, recommendation, report, risk, runner
@@ -17,7 +17,11 @@ def app(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "analyze":
-        return _run_analyze(args.repo, args.base, args.format, args.run_checks)
+        try:
+            executor = _validate_executor(args.executor)
+        except ValueError as exc:
+            parser.error(f"argument --executor: {exc}")
+        return _run_analyze(args.repo, args.base, args.format, args.run_checks, executor)
 
     parser.print_help()
     return 1
@@ -33,6 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--base", default="main")
     analyze_parser.add_argument("--format", choices=("text", "json"), default="text")
     analyze_parser.add_argument("--run-checks", action="store_true", default=False)
+    analyze_parser.add_argument("--executor", default=None)
 
     return parser
 
@@ -41,7 +46,21 @@ def _get_version() -> str:
     return importlib.metadata.version("pr-risk")
 
 
-def _run_analyze(repo: str, base: str, output_format: str, run_checks: bool) -> int:
+def _validate_executor(executor: str | None) -> str | None:
+    if executor is None:
+        return None
+    if executor not in {"local", "docker"}:
+        raise ValueError("must be one of: local, docker")
+    return executor
+
+
+def _run_analyze(
+    repo: str,
+    base: str,
+    output_format: str,
+    run_checks: bool,
+    executor: str | None = None,
+) -> int:
     try:
         changed_files = git_diff.get_changed_files(repo=repo, base=base)
         numstat_text = git_diff.get_diff_numstat(repo=repo, base=base)
@@ -58,7 +77,13 @@ def _run_analyze(repo: str, base: str, output_format: str, run_checks: bool) -> 
 
     if run_checks:
         execution_config = config.load_config(Path(repo))
-        execution_result = runner.run_execution_checks(Path(repo), execution_config)
+        if executor is not None:
+            execution_config = replace(execution_config, executor=executor)
+        try:
+            execution_result = runner.run_execution_checks(Path(repo), execution_config)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         result = risk.calculate_risk(
             changed_files,
             stats,
