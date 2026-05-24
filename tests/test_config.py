@@ -15,6 +15,7 @@ def test_load_config_defaults_when_no_config_file(tmp_path):
         test_command=None,
         timeout_seconds=300,
     )
+    assert load_config(tmp_path).ci_fail_on == "never"
 
 
 def test_load_config_reads_build_command_only(tmp_path):
@@ -80,6 +81,27 @@ def test_load_config_defaults_executor_to_local(tmp_path):
     )
 
     assert load_config(tmp_path).executor == "local"
+
+
+def test_load_config_parses_ci_fail_on(tmp_path):
+    _write_config(
+        tmp_path,
+        "[ci]\n"
+        'fail_on = "high"\n',
+    )
+
+    assert load_config(tmp_path).ci_fail_on == "high"
+
+
+def test_load_config_rejects_invalid_ci_fail_on(tmp_path):
+    _write_config(
+        tmp_path,
+        "[ci]\n"
+        'fail_on = "low"\n',
+    )
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path)
 
 
 def test_load_config_preserves_v0_5_1_config_behavior(tmp_path):

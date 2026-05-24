@@ -20,6 +20,7 @@ class ExecutionConfig:
     timeout_seconds: int
     executor: str = "local"
     docker: DockerConfig | None = None
+    ci_fail_on: str = "never"
 
 
 def load_config(repo_path: Path) -> ExecutionConfig:
@@ -35,6 +36,7 @@ def load_config(repo_path: Path) -> ExecutionConfig:
 
     commands = _table(config_data, "commands")
     execution = _table(config_data, "execution")
+    ci = _table(config_data, "ci")
     executor = _executor(execution)
 
     return ExecutionConfig(
@@ -43,6 +45,7 @@ def load_config(repo_path: Path) -> ExecutionConfig:
         timeout_seconds=_timeout_seconds(execution),
         executor=executor,
         docker=_docker_config(config_data, executor),
+        ci_fail_on=_ci_fail_on(ci),
     )
 
 
@@ -92,6 +95,17 @@ def _executor(execution: dict[str, object]) -> str:
     if executor not in {"local", "docker"}:
         raise ConfigError("execution.executor must be one of: local, docker")
     return executor
+
+
+def _ci_fail_on(ci: dict[str, object]) -> str:
+    value = ci.get("fail_on", "never")
+    if not isinstance(value, str):
+        raise ConfigError("ci.fail_on must be one of: never, medium, high")
+
+    fail_on = value.strip()
+    if fail_on not in {"never", "medium", "high"}:
+        raise ConfigError("ci.fail_on must be one of: never, medium, high")
+    return fail_on
 
 
 def _docker_config(config_data: dict[str, object], executor: str) -> DockerConfig | None:

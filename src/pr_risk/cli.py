@@ -32,7 +32,9 @@ def app(argv: list[str] | None = None) -> int:
             executor = _validate_executor(args.executor)
         except ValueError as exc:
             parser.error(f"argument --executor: {exc}")
-        return _run_analyze(args.repo, args.base, args.format, args.run_checks, executor)
+        if args.fail_on is not None and not args.ci:
+            parser.error("argument --fail-on: requires --ci")
+        return _run_analyze(args.repo, args.base, args.format, args.run_checks, executor, args.ci, args.fail_on)
 
     parser.print_help()
     return 1
@@ -49,6 +51,8 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--format", choices=("text", "json", "markdown"), default="text")
     analyze_parser.add_argument("--run-checks", action="store_true", default=False)
     analyze_parser.add_argument("--executor", default=None)
+    analyze_parser.add_argument("--ci", action="store_true", default=False)
+    analyze_parser.add_argument("--fail-on", choices=("never", "medium", "high"), default=None)
 
     return parser
 
@@ -71,6 +75,8 @@ def _run_analyze(
     output_format: str,
     run_checks: bool,
     executor: str | None = None,
+    ci: bool = False,
+    fail_on: str | None = None,
 ) -> int:
     try:
         changed_files = git_diff.get_changed_files(repo=repo, base=base)
@@ -86,10 +92,12 @@ def _run_analyze(
     execution_config = None
     execution_result = None
 
-    if run_checks:
+    if run_checks or (ci and fail_on is None):
         execution_config = config.load_config(Path(repo))
         if executor is not None:
             execution_config = replace(execution_config, executor=executor)
+
+    if run_checks:
         try:
             execution_result = runner.run_execution_checks(Path(repo), execution_config)
         except ValueError as exc:
@@ -137,7 +145,19 @@ def _run_analyze(
         report.print_report(changed_files, result, stats, cmake_signals, api_signals, execution_result)
     else:
         report.print_report(changed_files, result, stats, cmake_signals, api_signals)
+    if ci:
+        configured_fail_on = execution_config.ci_fail_on if execution_config is not None else "never"
+        return _ci_exit_code(result.level, fail_on or configured_fail_on)
     return 0
+
+
+def _ci_exit_code(risk_level: str, fail_on: str) -> int:
+    if fail_on == "never":
+        return 0
+
+    rank = {"NONE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
+    threshold = rank[fail_on.upper()]
+    return 1 if rank.get(risk_level, 0) >= threshold else 0
 
 
 def _json_report(

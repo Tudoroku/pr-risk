@@ -1072,6 +1072,145 @@ def test_analyze_run_checks_failed_build_text_report_uses_execution_aware_risk(m
     assert received_execution_result == execution_result
 
 
+def test_analyze_rejects_invalid_fail_on(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli.app(["analyze", "--ci", "--fail-on", "low"])
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "invalid choice: 'low'" in captured.err
+
+
+def test_analyze_fail_on_without_ci_is_rejected_cleanly(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli.app(["analyze", "--fail-on", "high"])
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "argument --fail-on: requires --ci" in captured.err
+
+
+def test_analyze_ci_without_fail_on_or_config_defaults_to_never(monkeypatch, tmp_path):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(90, "HIGH", ["reason"]))
+
+    exit_code = cli.app(["analyze", "--repo", str(tmp_path), "--base", "main", "--ci"])
+
+    assert exit_code == 0
+
+
+def test_analyze_ci_fail_on_never_does_not_load_config_without_run_checks(monkeypatch):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(90, "HIGH", ["reason"]))
+    monkeypatch.setattr(
+        cli.config,
+        "load_config",
+        lambda repo_path: pytest.fail("config should not be loaded when --fail-on is provided without --run-checks"),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--ci", "--fail-on", "never"])
+
+    assert exit_code == 0
+
+
+def test_analyze_ci_uses_config_fail_on(monkeypatch):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(90, "HIGH", ["reason"]))
+    calls = []
+
+    def fake_load_config(repo_path):
+        calls.append(("load_config", repo_path))
+        return cli.config.ExecutionConfig(None, None, 300, ci_fail_on="high")
+
+    monkeypatch.setattr(cli.config, "load_config", fake_load_config)
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--ci"])
+
+    assert exit_code == 1
+    assert calls == [("load_config", Path("."))]
+
+
+def test_analyze_ci_fail_on_overrides_config_without_loading_it(monkeypatch):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(60, "MEDIUM", ["reason"]))
+    monkeypatch.setattr(
+        cli.config,
+        "load_config",
+        lambda repo_path: pytest.fail("config should not be loaded when --fail-on is provided without --run-checks"),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--ci", "--fail-on", "high"])
+
+    assert exit_code == 0
+
+
+@pytest.mark.parametrize(
+    ("risk_level", "expected_exit_code"),
+    [
+        ("HIGH", 1),
+        ("MEDIUM", 0),
+        ("LOW", 0),
+    ],
+)
+def test_analyze_ci_fail_on_high(monkeypatch, risk_level, expected_exit_code):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(80, risk_level, ["reason"]))
+    monkeypatch.setattr(
+        cli.config,
+        "load_config",
+        lambda repo_path: pytest.fail("config should not be loaded when --fail-on is provided without --run-checks"),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--ci", "--fail-on", "high"])
+
+    assert exit_code == expected_exit_code
+
+
+@pytest.mark.parametrize(
+    ("risk_level", "expected_exit_code"),
+    [
+        ("HIGH", 1),
+        ("MEDIUM", 1),
+        ("LOW", 0),
+    ],
+)
+def test_analyze_ci_fail_on_medium(monkeypatch, risk_level, expected_exit_code):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(65, risk_level, ["reason"]))
+    monkeypatch.setattr(
+        cli.config,
+        "load_config",
+        lambda repo_path: pytest.fail("config should not be loaded when --fail-on is provided without --run-checks"),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--ci", "--fail-on", "medium"])
+
+    assert exit_code == expected_exit_code
+
+
+def test_analyze_without_ci_ignores_configured_fail_on(monkeypatch):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(90, "HIGH", ["reason"]))
+    monkeypatch.setattr(
+        cli.config,
+        "load_config",
+        lambda repo_path: pytest.fail("config should not be loaded without --ci or --run-checks"),
+    )
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main"])
+
+    assert exit_code == 0
+
+
+@pytest.mark.parametrize("output_format", ["text", "json", "markdown"])
+def test_analyze_ci_preserves_output_formats(monkeypatch, capsys, output_format):
+    _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
+    monkeypatch.setattr(cli.config, "load_config", lambda repo_path: cli.config.ExecutionConfig(None, None, 300))
+
+    exit_code = cli.app(["analyze", "--repo", ".", "--base", "main", "--ci", "--format", output_format])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.err == ""
+    if output_format == "json":
+        assert json.loads(captured.out)["level"] == "LOW"
+    elif output_format == "markdown":
+        assert "**Risk:** LOW" in captured.out
+
+
 def _stub_json_execution(monkeypatch, build_command, test_command, execution_result):
     _stub_analyze_pipeline(monkeypatch, RiskResult(25, "LOW", ["reason"]))
     monkeypatch.setattr(
