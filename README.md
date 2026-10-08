@@ -167,6 +167,8 @@ By default, analysis does not run local commands. Use `--run-checks` to add conf
 
 See the [GitHub Actions guide](docs/github-actions.md) for PR workflows with Markdown step summaries, JSON artifacts, CI fail thresholds, and trusted Docker execution checks.
 
+See the [GitLab CI guide](docs/gitlab-ci.md) for merge request pipelines with Markdown and JSON artifacts, CI fail thresholds, and Docker runner requirements.
+
 ## Configuration
 
 v0.4.0 introduced configured build/test execution evidence through `.pr-risk.toml`. v0.5.0 uses that execution evidence in risk scoring when `--run-checks` is provided:
