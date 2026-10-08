@@ -163,6 +163,10 @@ pr-risk --version
 
 By default, analysis does not run local commands. Use `--run-checks` to add configured build/test execution evidence.
 
+## CI Integration
+
+See the [GitHub Actions guide](docs/github-actions.md) for PR workflows with Markdown step summaries, JSON artifacts, CI fail thresholds, and trusted Docker execution checks.
+
 ## Configuration
 
 v0.4.0 introduced configured build/test execution evidence through `.pr-risk.toml`. v0.5.0 uses that execution evidence in risk scoring when `--run-checks` is provided:
