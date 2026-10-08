@@ -6,13 +6,14 @@ It compares local changes against a base Git reference, collects changed file pa
 
 Current scope:
 
-- Local command-line analysis only.
+- Command-line analysis for local and CI workflows.
 - Deterministic scoring based on changed file paths and diff churn.
 - C++ source/header and CMake file awareness.
 - Heuristic C++/CMake patch signal detection.
 - Execution-aware risk scoring from configured build/test commands.
 - Test-file detection for common test naming patterns.
-- Text and JSON output.
+- Text, JSON, and Markdown output.
+- CI fail thresholds and GitHub Actions/GitLab CI integration guides.
 
 ## Current Risk Signals
 
@@ -127,15 +128,16 @@ workdir = "/workspace"
 - Docker must be installed and running for Docker execution.
 - The Docker image must contain the needed build/test tools.
 - Docker improves execution separation but is not perfect security sandboxing.
-- stdout/stderr are still captured internally but are not printed in text or JSON output.
+- stdout/stderr are still captured internally but are not printed or serialized in reports.
 - Automatic Docker image building is not implemented yet.
 
 ## Architecture
 
-- `cli.py`: command-line argument parsing and command dispatch.
+- `cli.py`: command-line arguments, orchestration, and output format selection, including JSON rendering.
 - `git_diff.py`: Git diff and changed-file detection.
 - `risk.py`: deterministic risk scoring.
 - `report.py`: terminal report output.
+- `markdown_report.py`: Markdown report rendering.
 
 ## Installation
 
@@ -163,11 +165,32 @@ pr-risk --version
 
 By default, analysis does not run local commands. Use `--run-checks` to add configured build/test execution evidence.
 
-## CI Integration
+## v0.7.0: CI/PR Integration Output
+
+v0.7.0 adds Markdown reports, CI mode, and fail thresholds. JSON output and local/Docker execution remain supported.
+
+```bash
+pr-risk analyze --repo . --base main --format markdown
+pr-risk analyze --repo . --base main --ci --fail-on high
+```
+
+`--ci` controls exit status without changing the selected report format or automatically running configured build/test checks. Add `--run-checks` explicitly to include execution evidence.
+
+Threshold priority is CLI `--fail-on`, then `[ci].fail_on` in `.pr-risk.toml`, then the default `never`. `--fail-on` requires `--ci`.
+
+| Threshold | Risk levels that fail CI |
+| --- | --- |
+| `never` | None; analysis/configuration errors can still fail |
+| `medium` | MEDIUM and HIGH |
+| `high` | HIGH |
+
+Reaching the threshold returns exit code `1`; argument validation errors return `2`. Failed configured checks affect risk scoring and only fail CI when the final risk reaches the selected threshold. Tool/configuration failures follow separate error paths; see the guides for details.
 
 See the [GitHub Actions guide](docs/github-actions.md) for PR workflows with Markdown step summaries, JSON artifacts, CI fail thresholds, and trusted Docker execution checks.
 
 See the [GitLab CI guide](docs/gitlab-ci.md) for merge request pipelines with Markdown and JSON artifacts, CI fail thresholds, and Docker runner requirements.
+
+These examples have been validated locally; hosted CI execution remains unverified.
 
 ## Configuration
 
@@ -181,6 +204,9 @@ test = "ctest --test-dir build --output-on-failure"
 [execution]
 timeout_seconds = 300
 executor = "local"
+
+[ci]
+fail_on = "never"
 ```
 
 - `[commands].build` is optional.
@@ -189,9 +215,12 @@ executor = "local"
 - `[execution].executor` is optional and defaults to `local`.
 - Commands run only when `--run-checks` is provided.
 - Failed or timed-out build/test execution can increase the risk score in v0.5.0.
-- stdout/stderr are captured internally but are not printed in text or JSON output.
+- `[ci].fail_on` is optional and defaults to `never`; it applies only with `--ci` and is overridden by CLI `--fail-on`.
+- stdout/stderr are captured internally but are not printed or serialized in reports.
 
-Security warning: commands are executed locally through the system shell. Only run trusted repository configs.
+Security warning: `--run-checks` executes repository-configured commands using the selected local or Docker executor. Only run checks for trusted repositories and PRs/MRs.
+
+Do not use `--run-checks` on untrusted PRs/MRs, including forks: their checkout can supply arbitrary commands through `.pr-risk.toml`. Docker does not make untrusted commands safe.
 
 ## Text Output
 
@@ -354,14 +383,17 @@ Example:
 ## Current Limitations
 
 - Deterministic heuristic analysis only.
-- Local CLI only.
-- No GitHub integration yet.
+- CLI output for local and CI workflows; no GitHub/GitLab App or API integration.
+- No automatic PR/MR comments, OAuth, or webhooks.
+- No hosted dashboard.
+- No LLM summaries.
 - Commands can run locally through the system shell or through Docker when configured.
 - Only trusted repository configs should be run.
 - Docker execution is not perfect security sandboxing.
 - No automatic Docker image building yet.
 - No automatic build discovery yet.
-- No stdout/stderr artifact storage yet.
+- No artifact storage; CI platforms can store generated report files.
+- No printing or serialization of captured build/test stdout/stderr.
 - No coverage parsing yet.
 - Not a compiler.
 - Not full C++ parsing.
@@ -370,6 +402,6 @@ Example:
 
 ## Roadmap
 
-- v0.7.0: GitHub/GitLab PR integration.
 - v0.8.0: configurable team policies.
 - v0.9.0: LLM evidence summaries.
+- v1.0.0: polished CLI/CI/PR risk product.
